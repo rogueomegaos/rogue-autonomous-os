@@ -184,6 +184,58 @@ function render() {
     state.activeView = el.dataset.view;
     render();
   }));
+  document.querySelector('#opportunity-form')?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const button = event.currentTarget.querySelector('button[type="submit"]');
+    button.disabled = true;
+    try {
+      await apiRequest('/api/opportunities', { method: 'POST', body: JSON.stringify({ title: String(form.get('title')).trim(), category: String(form.get('category') || 'unclassified').trim(), source_id: String(form.get('source_id') || '') || null, target_url: String(form.get('target_url')).trim(), description: String(form.get('description') || '').trim() }) });
+      await refreshCollection('/api/opportunities', 'opportunities', 'opportunities');
+      await refreshCollection('/api/audit', 'events', 'auditEvents');
+      render();
+    } catch (error) { window.alert('Could not add opportunity: ' + error.message); button.disabled = false; }
+  });
+  document.querySelectorAll('[data-review]').forEach((el) => el.addEventListener('click', async () => {
+    const status = el.dataset.status;
+    if (!window.confirm(status === 'verified' ? 'Confirm that you checked the official source, eligibility and evidence before marking this verified.' : 'Reject this candidate opportunity?')) return;
+    try {
+      await apiRequest('/api/opportunities/' + encodeURIComponent(el.dataset.review) + '/review', { method: 'POST', body: JSON.stringify({ status: status, score: status === 'verified' ? 70 : 0 }) });
+      await refreshCollection('/api/opportunities', 'opportunities', 'opportunities');
+      await refreshCollection('/api/audit', 'events', 'auditEvents');
+      render();
+    } catch (error) { window.alert('Review failed: ' + error.message); }
+  }));
+  document.querySelector('#product-form')?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const price = Math.round(Number(form.get('price')) * 100);
+    if (!Number.isSafeInteger(price) || price < 0) { window.alert('Enter a valid non-negative price.'); return; }
+    const button = event.currentTarget.querySelector('button[type="submit"]');
+    button.disabled = true;
+    try {
+      await apiRequest('/api/products', { method: 'POST', body: JSON.stringify({ title: String(form.get('title')).trim(), slug: String(form.get('slug') || '').trim(), description: String(form.get('description') || '').trim(), price_minor: price }) });
+      await refreshCollection('/api/products', 'products', 'products');
+      await refreshCollection('/api/audit', 'events', 'auditEvents');
+      render();
+    } catch (error) { window.alert('Could not save product: ' + error.message); button.disabled = false; }
+  });
+  document.querySelector('#creative-form')?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const button = event.currentTarget.querySelector('button[type="submit"]');
+    button.disabled = true;
+    try {
+      await apiRequest('/api/creative-jobs', { method: 'POST', body: JSON.stringify({ client_name: String(form.get('client_name')).trim(), client_contact: String(form.get('client_contact') || '').trim(), title: String(form.get('title')).trim(), deliverable_type: String(form.get('deliverable_type')), brief: String(form.get('brief') || '').trim() }) });
+      await refreshCollection('/api/creative-jobs', 'jobs', 'creativeJobs');
+      await refreshCollection('/api/audit', 'events', 'auditEvents');
+      render();
+    } catch (error) { window.alert('Could not save creative brief: ' + error.message); button.disabled = false; }
+  });
+  document.querySelector('#refresh-logs')?.addEventListener('click', async () => {
+    await refreshCollection('/api/audit', 'events', 'auditEvents');
+    render();
+  });
   document.querySelector('#token-form')?.addEventListener('submit', async (event) => {
     event.preventDefault();
     const token = String(new FormData(event.currentTarget).get('token') || '').trim();
@@ -232,7 +284,7 @@ function render() {
     } catch (error) { window.alert('Could not remove source: ' + error.message); }
   }));
   document.querySelector('#help-button')?.addEventListener('click', () => {
-    window.alert('RØGUE OS Foundation 0.1.0\nThis is a frontend foundation. Source entries currently live in memory only and disappear on refresh. No automated fetching, payments or AI actions are running.');
+    window.alert('RØGUE OS Foundation 0.2.0\nRecords use the protected Cloudflare API when an admin token is configured. Automated fetching, payments and AI actions remain paused.');
   });
 }
 
