@@ -8,7 +8,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "cf:dev": "wrangler dev",
-    "cf:deploy": "wrangler deploy"
+    "cf:deploy": "wrangler deploy",
+    "test": "node --test"
   },
   "devDependencies": {
     "vite": "^6.4.1",
