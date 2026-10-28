@@ -7,6 +7,20 @@ const state = {
   health: 'Checking',
 };
 
+const adminToken = () => sessionStorage.getItem('rogue_admin_token') || '';
+async function apiRequest(path, options = {}) {
+  const headers = { 'content-type': 'application/json', ...(options.headers || {}) };
+  if (adminToken()) headers.authorization = 'Bearer ' + adminToken();
+  const response = await fetch(path, { ...options, headers });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.message || data.error || 'Request failed (' + response.status + ')');
+  return data;
+}
+async function refreshSources() {
+  try { const data = await apiRequest('/api/sources'); state.sources = data.sources || []; }
+  catch (error) { if (error.message !== 'unauthorized') console.warn('Source API unavailable:', error.message); }
+}
+
 const icons = {
   overview: '◈',
   discovery: '⌕',
@@ -94,6 +108,16 @@ function renderSources() {
   return `<div class="table-wrap"><table><thead><tr><th>SOURCE</th><th>TYPE</th><th>URL</th><th>STATUS</th><th></th></tr></thead><tbody>${state.sources.map((s,i)=>`<tr><td><strong>${escapeHtml(s.name)}</strong><small>${escapeHtml(s.notes || 'No notes')}</small></td><td><span class="pill">${escapeHtml(s.type.toUpperCase())}</span></td><td class="url-cell">${escapeHtml(s.url)}</td><td><span class="status-tag"><i></i> REGISTERED</span></td><td><button class="icon-button" data-remove-source="${i}" aria-label="Remove source">×</button></td></tr>`).join('')}</tbody></table></div>`;
 }
 
+function settingsView() {
+  return `<section class="welcome-row"><div><div class="eyebrow">SYSTEM CONTROL</div><h1>Settings <span>.</span></h1><p class="subhead">Connect the dashboard to its protected Cloudflare Worker API.</p></div></section>
+    <section class="panel form-panel"><div class="panel-heading"><div><div class="eyebrow">ADMIN ACCESS</div><h2>API authentication</h2></div><span class="pill muted">SESSION ONLY</span></div>
+      <form id="token-form" class="source-form"><label class="full-field">Worker admin token<input name="token" type="password" autocomplete="off" placeholder="Paste the ROGUE_ADMIN_TOKEN secret" value="${escapeHtml(adminToken())}" required minlength="32" /></label>
+      <div class="form-actions"><p>The token is kept in this browser tab's session storage, not committed to GitHub. Create the same secret in Cloudflare Worker settings before using protected endpoints.</p><button class="primary-button" type="submit">Save & test connection <span>↗</span></button></div></form>
+      <div id="connection-result" class="muted-text" role="status"></div>
+    </section>
+    <section class="panel"><div class="eyebrow">SAFETY DEFAULTS</div><h2>Autonomous actions remain paused</h2><p class="subhead">No background source fetching, payments or external actions run until those modules are implemented and tested.</p></section>`;
+}
+
 function simpleView(id, title, subtitle, label, description) {
   return `<section class="welcome-row"><div><div class="eyebrow">${label}</div><h1>${title} <span>.</span></h1><p class="subhead">${subtitle}</p></div></section>
     <section class="panel placeholder-panel"><div class="placeholder-icon">${icons[id] || '◈'}</div><div class="eyebrow">FOUNDATION PHASE</div><h2>${description}</h2><p>This module is intentionally not simulated. It will be connected to persistent storage and validated workflows in a later implementation step.</p><span class="pill muted">NOT IMPLEMENTED YET</span></section>`;
@@ -107,7 +131,7 @@ function render() {
     products: () => simpleView('products','Product engine','Manage digital products, offers and protected customer downloads.','COMMERCE ENGINE A','The product catalog, order lifecycle and payment verification are not connected yet.'),
     creative: () => simpleView('creative','Creative services','Track client briefs, production jobs and deliverable approvals.','COMMERCE ENGINE B','The creative workflow needs job records, asset storage and production integrations.'),
     activity: () => simpleView('activity','Activity logs','Inspect orchestration events, failures and safety limits.','OMEGA · OBSERVABILITY','Persistent audit logs and emergency-stop controls will be added with the backend.'),
-    settings: () => simpleView('settings','System settings','Configure runtime, integrations and operational safety.','SYSTEM CONTROL','Secrets belong in server-side environment bindings, never in browser code.'),
+    settings: settingsView,
   };
   const app = document.querySelector('#app');
   app.innerHTML = `<div class="app-shell">
@@ -126,19 +150,37 @@ function render() {
     state.activeView = el.dataset.view;
     render();
   }));
+  document.querySelector('#token-form')?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const token = String(new FormData(event.currentTarget).get('token') || '').trim();
+    sessionStorage.setItem('rogue_admin_token', token);
+    const result = document.querySelector('#connection-result');
+    result.textContent = 'Testing protected API…';
+    try {
+      await apiRequest('/api/sources');
+      result.textContent = 'Connected. Source API authentication succeeded.';
+      await refreshSources();
+    } catch (error) {
+      result.textContent = 'Connection failed: ' + error.message + '. Check Worker deployment and the ROGUE_ADMIN_TOKEN secret.';
+    }
+  });
   document.querySelector('#run-discovery')?.addEventListener('click', () => {
     state.activeView = 'discovery';
     render();
   });
-  document.querySelector('#source-form')?.addEventListener('submit', (event) => {
+  document.querySelector('#source-form')?.addEventListener('submit', async (event) => {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     const rawUrl = String(form.get('url') || '').trim();
     try {
       const parsed = new URL(rawUrl);
       if (!['http:', 'https:'].includes(parsed.protocol) || parsed.username || parsed.password) throw new Error('Invalid URL');
-      state.sources.push({ name: String(form.get('name')).trim(), type: String(form.get('type')), url: parsed.href, notes: String(form.get('notes') || '').trim() });
-      render();
+      const submitButton = event.currentTarget.querySelector('button[type="submit"]');
+      submitButton.disabled = true;
+      submitButton.textContent = 'Saving…';
+      apiRequest('/api/sources', { method: 'POST', body: JSON.stringify({ name: String(form.get('name')).trim(), type: String(form.get('type')), url: parsed.href, notes: String(form.get('notes') || '').trim() }) })
+        .then(() => refreshSources()).then(() => render())
+        .catch((error) => { window.alert('Could not save source: ' + error.message); submitButton.disabled = false; submitButton.textContent = 'Add source ＋'; });
     } catch {
       const input = event.currentTarget.elements.url;
       input.setCustomValidity('Enter a valid public HTTP or HTTPS URL without embedded credentials.');
@@ -146,13 +188,18 @@ function render() {
       input.addEventListener('input', () => input.setCustomValidity(), { once: true });
     }
   });
-  document.querySelectorAll('[data-remove-source]').forEach((el) => el.addEventListener('click', () => {
-    state.sources.splice(Number(el.dataset.removeSource), 1);
-    render();
+  document.querySelectorAll('[data-remove-source]').forEach((el) => el.addEventListener('click', async () => {
+    const source = state.sources[Number(el.dataset.removeSource)];
+    if (!source || !window.confirm('Remove source "' + source.name + '"?')) return;
+    try {
+      await apiRequest('/api/sources/' + encodeURIComponent(source.id), { method: 'DELETE' });
+      await refreshSources();
+      render();
+    } catch (error) { window.alert('Could not remove source: ' + error.message); }
   }));
   document.querySelector('#help-button')?.addEventListener('click', () => {
     window.alert('RØGUE OS Foundation 0.1.0\nThis is a frontend foundation. Source entries currently live in memory only and disappear on refresh. No automated fetching, payments or AI actions are running.');
   });
 }
 
-render();
+refreshSources().finally(render);
