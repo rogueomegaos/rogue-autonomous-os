@@ -7,6 +7,14 @@ const state = {
   health: 'Checking',
 };
 
+async function refreshHealth() {
+  try {
+    const response = await fetch('/api/health', { cache: 'no-store' });
+    const data = await response.json();
+    state.health = data.ok && data.database === 'connected' ? 'Online' : 'Degraded';
+  } catch { state.health = 'Offline'; }
+}
+
 const adminToken = () => sessionStorage.getItem('rogue_admin_token') || '';
 async function apiRequest(path, options = {}) {
   const headers = { 'content-type': 'application/json', ...(options.headers || {}) };
@@ -143,7 +151,7 @@ function render() {
       <div class="nav-label">SYSTEM</div><nav>${navItem('activity','Activity Logs')}${navItem('settings','Settings')}</nav>
       <div class="sidebar-bottom"><div class="runtime-card"><div class="runtime-heading"><span class="status-dot"></span> OMEGA CONTROL <span class="pill muted">SAFE</span></div><p>Autonomous actions are paused until backend controls are configured.</p><div class="runtime-bar"><span></span></div><small>SAFETY MODE · ACTIVE</small></div><div class="profile-row"><div class="profile-avatar">R</div><div><strong>Operator</strong><small>System administrator</small></div><span class="profile-dots">•••</span></div></div>
     </aside>
-    <main class="main-area"><header class="topbar"><div class="breadcrumb"><span>RØGUE OS</span><b>/</b><strong>${state.activeView === 'overview' ? 'Command' : state.activeView === 'sources' ? 'Sources & Integrations' : state.activeView[0].toUpperCase()+state.activeView.slice(1)}</strong></div><div class="topbar-right"><span class="environment"><i></i> LOCAL PREVIEW</span><button class="icon-button top-icon" id="help-button" aria-label="About this preview">?</button><div class="top-avatar">R</div></div></header><div class="page-content">${(views[state.activeView] || overview)()}</div><footer class="app-footer"><span>RØGUE AUTONOMOUS COMMERCE OS <b>·</b> FOUNDATION 0.1.0</span><span>BUILT FOR CONTROL. DESIGNED FOR SCALE.</span></footer></main>
+    <main class="main-area"><header class="topbar"><div class="breadcrumb"><span>RØGUE OS</span><b>/</b><strong>${state.activeView === 'overview' ? 'Command' : state.activeView === 'sources' ? 'Sources & Integrations' : state.activeView[0].toUpperCase()+state.activeView.slice(1)}</strong></div><div class="topbar-right"><span class="environment"><i></i> WORKER LIVE</span><button class="icon-button top-icon" id="help-button" aria-label="About this preview">?</button><div class="top-avatar">R</div></div></header><div class="page-content">${(views[state.activeView] || overview)()}</div><footer class="app-footer"><span>RØGUE AUTONOMOUS COMMERCE OS <b>·</b> FOUNDATION 0.1.0</span><span>BUILT FOR CONTROL. DESIGNED FOR SCALE.</span></footer></main>
   </div>`;
   document.querySelectorAll('[data-view]').forEach((el) => el.addEventListener('click', (event) => {
     event.preventDefault();
@@ -202,4 +210,4 @@ function render() {
   });
 }
 
-refreshSources().finally(render);
+Promise.all([refreshSources(), refreshHealth()]).finally(render);
