@@ -101,6 +101,73 @@ async function api(request, env, url) {
     const { results } = await query.all();
     return json({ opportunities: results || [] });
   }
+  if (url.pathname === '/api/opportunities' && request.method === 'POST') {
+    let body;
+    try { body = await readJson(request); } catch { return json({ error: 'invalid_json_or_body_too_large' }, 400); }
+    const title = String(body.title || '').trim();
+    const targetUrl = safeSourceUrl(String(body.target_url || body.url || ''));
+    const description = String(body.description || '').trim();
+    const category = String(body.category || 'unclassified').trim().slice(0, 80);
+    const sourceId = body.source_id ? String(body.source_id) : null;
+    if (!title || title.length > 200) return json({ error: 'invalid_title' }, 400);
+    if (!targetUrl) return json({ error: 'invalid_url' }, 400);
+    if (description.length > 5000) return json({ error: 'description_too_long' }, 400);
+    if (sourceId) {
+      const source = await env.DB.prepare('SELECT id FROM sources WHERE id = ?').bind(sourceId).first();
+      if (!source) return json({ error: 'source_not_found' }, 400);
+    }
+    const opportunityId = id();
+    await env.DB.prepare('INSERT INTO opportunities (id, source_id, title, description, target_url, category, legitimacy_status, score, evidence_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .bind(opportunityId, sourceId, title, description, targetUrl, category, 'pending_review', 0, '[]').run();
+    await audit(env, 'opportunity.created', 'Opportunity added for manual review', 'info', { opportunityId });
+    return json({ id: opportunityId, title, target_url: targetUrl, legitimacy_status: 'pending_review', score: 0 }, 201);
+  }
+  const opportunityMatch = url.pathname.match(/^\\/api\\/opportunities\\/([0-9a-f-]{36})\\/review$/i);
+  if (opportunityMatch && request.method === 'POST') {
+    let body;
+    try { body = await readJson(request); } catch { return json({ error: 'invalid_json_or_body_too_large' }, 400); }
+    const status = String(body.status || '');
+    const score = Number(body.score ?? 0);
+    if (!['pending_review', 'verified', 'rejected'].includes(status) || !Number.isInteger(score) || score < 0 || score > 100) return json({ error: 'invalid_review' }, 400);
+    const result = await env.DB.prepare('UPDATE opportunities SET legitimacy_status = ?, score = ?, reviewed_at = strftime(\'%Y-%m-%dT%H:%M:%fZ\', \'now\') WHERE id = ?')
+      .bind(status, score, opportunityMatch[1]).run();
+    if (!result.meta?.changes) return json({ error: 'opportunity_not_found' }, 404);
+    await audit(env, 'opportunity.reviewed', 'Opportunity review status changed', status === 'rejected' ? 'warning' : 'info', { opportunityId: opportunityMatch[1], status, score });
+    return json({ ok: true, status, score });
+  }
+  if (url.pathname === '/api/products' && request.method === 'POST') {
+    let body;
+    try { body = await readJson(request); } catch { return json({ error: 'invalid_json_or_body_too_large' }, 400); }
+    const title = String(body.title || '').trim();
+    const description = String(body.description || '').trim();
+    const slug = String(body.slug || title.toLowerCase()).normalize('NFKD').replace(/[\\u0300-\\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 100);
+    const price = Number(body.price_minor ?? 0);
+    if (!title || title.length > 160 || !slug) return json({ error: 'invalid_product' }, 400);
+    if (description.length > 5000 || !Number.isSafeInteger(price) || price < 0) return json({ error: 'invalid_product_fields' }, 400);
+    const productId = id();
+    try {
+      await env.DB.prepare('INSERT INTO products (id, title, slug, description, price_minor, currency, status) VALUES (?, ?, ?, ?, ?, ?, ?)')
+        .bind(productId, title, slug, description, price, 'MYR', 'draft').run();
+    } catch { return json({ error: 'slug_already_exists_or_invalid_product' }, 409); }
+    await audit(env, 'product.created', 'Product draft created', 'info', { productId });
+    return json({ id: productId, title, slug, price_minor: price, currency: 'MYR', status: 'draft' }, 201);
+  }
+  if (url.pathname === '/api/creative-jobs' && request.method === 'POST') {
+    let body;
+    try { body = await readJson(request); } catch { return json({ error: 'invalid_json_or_body_too_large' }, 400); }
+    const clientName = String(body.client_name || '').trim();
+    const title = String(body.title || '').trim();
+    const brief = String(body.brief || '').trim();
+    const contact = String(body.client_contact || '').trim();
+    const deliverable = String(body.deliverable_type || 'other').trim().slice(0, 50);
+    if (!clientName || clientName.length > 160 || !title || title.length > 200) return json({ error: 'invalid_job' }, 400);
+    if (brief.length > 8000 || contact.length > 250) return json({ error: 'job_fields_too_long' }, 400);
+    const jobId = id();
+    await env.DB.prepare('INSERT INTO creative_jobs (id, client_name, client_contact, title, brief, deliverable_type, status) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .bind(jobId, clientName, contact, title, brief, deliverable, 'brief_received').run();
+    await audit(env, 'creative_job.created', 'Creative service job created', 'info', { jobId });
+    return json({ id: jobId, client_name: clientName, title, deliverable_type: deliverable, status: 'brief_received' }, 201);
+  }
   if (url.pathname === '/api/audit' && request.method === 'GET') {
     const { results } = await env.DB.prepare('SELECT id, actor, event_type, severity, message, metadata_json, created_at FROM audit_events ORDER BY created_at DESC LIMIT 100').all();
     return json({ events: results || [] });
