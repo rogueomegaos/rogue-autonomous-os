@@ -4,6 +4,9 @@ const state = {
   activeView: 'overview',
   sources: [],
   opportunities: [],
+  products: [],
+  creativeJobs: [],
+  auditEvents: [],
   health: 'Checking',
 };
 
@@ -27,6 +30,13 @@ async function apiRequest(path, options = {}) {
 async function refreshSources() {
   try { const data = await apiRequest('/api/sources'); state.sources = data.sources || []; }
   catch (error) { if (error.message !== 'unauthorized') console.warn('Source API unavailable:', error.message); }
+}
+async function refreshCollection(path, responseKey, stateKey) {
+  try { const data = await apiRequest(path); state[stateKey] = data[responseKey] || []; }
+  catch (error) { if (error.message !== 'unauthorized') console.warn(path + ' unavailable:', error.message); }
+}
+async function refreshAll() {
+  await Promise.all([refreshSources(), refreshCollection('/api/opportunities', 'opportunities', 'opportunities'), refreshCollection('/api/products', 'products', 'products'), refreshCollection('/api/creative-jobs', 'jobs', 'creativeJobs'), refreshCollection('/api/audit', 'events', 'auditEvents'), refreshHealth()]);
 }
 
 const icons = {
@@ -210,4 +220,4 @@ function render() {
   });
 }
 
-Promise.all([refreshSources(), refreshHealth()]).finally(render);
+refreshAll().finally(render);
