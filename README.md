@@ -11,6 +11,16 @@ A modular foundation for opportunity discovery, lead intelligence, digital comme
 - Cloudflare D1 schema for future persistent records
 - GitHub as source control and deployment source
 
+## Live foundation deployment
+
+- Worker: https://rogue-autonomous-os.rogueomegaos.workers.dev
+- Health endpoint: https://rogue-autonomous-os.rogueomegaos.workers.dev/api/health
+- Cloudflare D1 database: `rogue-autonomous-os` (APAC)
+- Runtime: Cloudflare Workers
+- Admin API: protected by the `ROGUE_ADMIN_TOKEN` Worker secret
+
+The Worker and D1 database have been created. The admin secret is not configured automatically by this repository setup, so protected source management remains locked until a secret is set in Cloudflare. In Cloudflare Dashboard, open **Workers & Pages → rogue-autonomous-os → Settings → Variables and Secrets**, add a secret named `ROGUE_ADMIN_TOKEN` with a random value of at least 32 characters, then enter the same value under **Settings** inside the app. Do not commit the token to GitHub or place it in a source file.
+
 ## Local development
 
 Requires a current Node.js LTS release.
