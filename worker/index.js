@@ -122,7 +122,7 @@ async function api(request, env, url) {
     await audit(env, 'opportunity.created', 'Opportunity added for manual review', 'info', { opportunityId });
     return json({ id: opportunityId, title, target_url: targetUrl, legitimacy_status: 'pending_review', score: 0 }, 201);
   }
-  const opportunityMatch = url.pathname.match(/^\\/api\\/opportunities\\/([0-9a-f-]{36})\\/review$/i);
+  const opportunityMatch = url.pathname.match(/^\/api\/opportunities\/([0-9a-f-]{36})\/review$/i);
   if (opportunityMatch && request.method === 'POST') {
     let body;
     try { body = await readJson(request); } catch { return json({ error: 'invalid_json_or_body_too_large' }, 400); }
@@ -140,7 +140,7 @@ async function api(request, env, url) {
     try { body = await readJson(request); } catch { return json({ error: 'invalid_json_or_body_too_large' }, 400); }
     const title = String(body.title || '').trim();
     const description = String(body.description || '').trim();
-    const slug = String(body.slug || title.toLowerCase()).normalize('NFKD').replace(/[\\u0300-\\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 100);
+    const slug = String(body.slug || title.toLowerCase()).normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 100);
     const price = Number(body.price_minor ?? 0);
     if (!title || title.length > 160 || !slug) return json({ error: 'invalid_product' }, 400);
     if (description.length > 5000 || !Number.isSafeInteger(price) || price < 0) return json({ error: 'invalid_product_fields' }, 400);
