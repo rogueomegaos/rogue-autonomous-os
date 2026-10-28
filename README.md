@@ -2,7 +2,7 @@
 
 A modular foundation for opportunity discovery, lead intelligence, digital commerce, creative services and safe workflow orchestration.
 
-> **Status: Foundation 0.1.0.** The responsive dashboard and initial Cloudflare Worker/D1 scaffolding are committed. This is not yet a production-ready autonomous agent. The current source registry is held in browser memory only; discovery, authentication, payments and file delivery are not implemented.
+> **Status: Foundation 0.2.0.** The responsive dashboard is connected to a Cloudflare Worker and D1 database for protected source records, opportunity review, product drafts, creative briefs and audit events. This is not yet a production-ready autonomous agent. Automated discovery, payment processing, asset delivery and background orchestration remain disabled.
 
 ## Stack
 
@@ -19,7 +19,7 @@ A modular foundation for opportunity discovery, lead intelligence, digital comme
 - Runtime: Cloudflare Workers
 - Admin API: protected by the `ROGUE_ADMIN_TOKEN` Worker secret
 
-The Worker and D1 database have been created. The current live deployment is a snapshot uploaded through the Cloudflare API; GitHub pushes do not yet auto-deploy. The admin secret is not configured automatically by this repository setup, so protected source management remains locked until a secret is set in Cloudflare. In Cloudflare Dashboard, open **Workers & Pages → rogue-autonomous-os → Settings → Variables and Secrets**, add a secret named `ROGUE_ADMIN_TOKEN` with a random value of at least 32 characters, then enter the same value under **Settings** inside the app. Do not commit the token to GitHub or place it in a source file.
+The Worker and D1 database have been created, and the latest dashboard/backend snapshot was uploaded through the Cloudflare API. GitHub pushes do not yet auto-deploy. Protected APIs require a `ROGUE_ADMIN_TOKEN` secret configured in the Worker; if it is absent, the UI remains read-only and write operations are rejected. In Cloudflare Dashboard, open **Workers & Pages → rogue-autonomous-os → Settings → Variables and Secrets**, add a secret named `ROGUE_ADMIN_TOKEN` with a random value of at least 32 characters, then enter the same value under **Settings** inside the app. Do not commit the token to GitHub or place it in a source file.
 
 ## Local development
 
