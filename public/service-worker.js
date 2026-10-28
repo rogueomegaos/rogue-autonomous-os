@@ -1,4 +1,4 @@
-const CACHE = 'rogue-os-static-v5';
+const CACHE = 'rogue-os-static-v6';
 const STATIC = ['/','/src/main.js','/src/style.css','/manifest.webmanifest','/icon.svg'];
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(STATIC)).then(() => self.skipWaiting()));
