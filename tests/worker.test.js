@@ -63,3 +63,14 @@ test('source API persists a valid public HTTPS source', async () => {
   assert.equal(body.url, 'https://example.org/offers');
   assert.equal(body.status, 'registered');
 });
+
+test('CORS allows the deployed Worker origin but not arbitrary sites', async () => {
+  const allowed = await worker.fetch(new Request('https://example.test/api/health', {
+    headers: { origin: 'https://rogue-autonomous-os.rogueomegaos.workers.dev' },
+  }), {});
+  assert.equal(allowed.headers.get('access-control-allow-origin'), 'https://rogue-autonomous-os.rogueomegaos.workers.dev');
+  const denied = await worker.fetch(new Request('https://example.test/api/health', {
+    headers: { origin: 'https://attacker.example' },
+  }), {});
+  assert.equal(denied.headers.get('access-control-allow-origin'), null);
+});
