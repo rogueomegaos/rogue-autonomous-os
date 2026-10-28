@@ -63,17 +63,22 @@ function navItem(id, label) {
 }
 
 function metric(label, value, note, icon) {
-  return `<article class="metric-card">
+  const details = {
+    'OPPORTUNITIES FOUND': 'Jumlah peluang yang telah dimasukkan ke dalam rekod. Angka ini bukan bukti pendapatan atau peluang yang telah disahkan.',
+    'SOURCES CONNECTED': 'Sumber awam yang didaftarkan untuk semakan kemudian. Pengambilan data automatik belum diaktifkan.',
+    'PRODUCTS LIVE': 'Bilangan produk berstatus published. Draf katalog tidak dikira sebagai produk langsung.',
+    'SYSTEM HEALTH': 'Status sambungan runtime dan pangkalan data. Status Online tidak bermaksud semua modul autonomi sudah aktif.'
+  };
+  return `<button type="button" class="metric-card interactive-card" data-info-title="${label}" data-info="${details[label] || note}" aria-haspopup="dialog">
     <div class="metric-top"><span>${label}</span><span class="metric-icon">${icon}</span></div>
-    <div class="metric-value">${value}</div><div class="metric-note">${note}</div>
-  </article>`;
+    <div class="metric-value">${value}</div><span class="card-hint">LIHAT BUTIRAN ↗</span>
+  </button>`;
 }
 
 function overview() {
   return `<section class="welcome-row">
-      <div><div class="eyebrow"><span class="status-dot"></span> SYSTEM OVERVIEW</div>
-        <h1>Command <span>the opportunity.</span></h1>
-        <p class="subhead">Your operations, intelligence and commerce engines in one place.</p>
+      <div><div class="eyebrow"><span class="status-dot"></span> RØGUE COMMAND CENTER</div>
+        <h1>Command <span>center.</span></h1>
       </div>
       <button class="primary-button" id="run-discovery"><span>↗</span> Run discovery</button>
     </section>
@@ -84,14 +89,14 @@ function overview() {
       ${metric('SYSTEM HEALTH',state.health,'Runtime status','◉')}
     </section>
     <section class="content-grid">
-      <article class="panel pipeline-panel">
+      <article class="panel pipeline-panel interactive-panel" data-info-title="Discovery workflow" data-info="Aliran sasaran: DISCOVER → EXTRACT → VERIFY → SCORE → ROUTE → LEARN. Ini gambaran seni bina sahaja. Pelaksanaan automatik masih dijeda dan tiada crawling berjalan di latar belakang." tabindex="0" role="button" aria-haspopup="dialog">
         <div class="panel-heading"><div><div class="eyebrow">AUTONOMOUS PIPELINE</div><h2>Discovery workflow</h2></div><span class="pill muted">READY</span></div>
         <div class="pipeline">
           ${[['01','DISCOVER','Find sources and opportunities'],['02','EXTRACT','Collect structured signals'],['03','VERIFY','Check legitimacy and evidence'],['04','SCORE','Rank quality and fit'],['05','ROUTE','Send to the right engine'],['06','LEARN','Record outcomes and improve']].map(([n,t,d],i)=>`<div class="pipeline-step"><div class="step-number">${n}</div><div class="step-copy"><strong>${t}</strong><span>${d}</span></div><span class="step-state">${i===0?'●':'○'}</span></div>`).join('')}
         </div>
         <div class="panel-footer"><span class="muted-text">Autonomy remains paused until sources are configured.</span><span class="tiny-brand">Ω CONTROL</span></div>
       </article>
-      <article class="panel activity-panel">
+      <article class="panel activity-panel interactive-panel" data-info-title="Activity stream" data-info="Paparan ringkas aktiviti sistem. Log sebenar hanya muncul selepas operasi API yang disahkan direkodkan. Klik View logs untuk melihat rekod audit." tabindex="0" role="button" aria-haspopup="dialog">
         <div class="panel-heading"><div><div class="eyebrow">LIVE OPERATIONS</div><h2>Activity stream</h2></div><span class="live-label"><i></i> LIVE</span></div>
         <div id="activity-list" class="activity-list">
           <div class="empty-state"><div class="empty-symbol">≋</div><strong>Quiet by design.</strong><p>System events will appear here as you connect sources and run workflows.</p></div>
@@ -99,7 +104,7 @@ function overview() {
         <div class="panel-footer"><span class="muted-text">Event stream · local session</span><button class="text-button" data-view="activity">View logs ↗</button></div>
       </article>
     </section>
-    <section class="panel quickstart">
+    <section class="panel quickstart interactive-panel" data-info-title="Next mission" data-info="Daftarkan sumber awam yang dipercayai terlebih dahulu. Sistem belum mengambil data secara automatik, dan setiap peluang perlu disemak sebelum dianggap sah." tabindex="0" role="button" aria-haspopup="dialog">
       <div class="quickstart-mark">R<span>Ø</span></div>
       <div class="quickstart-copy"><div class="eyebrow">NEXT MISSION</div><h2>Give RØGUE something to work with.</h2><p>Add a trusted source first. The system will not invent leads, fabricate evidence or pretend a workflow ran.</p></div>
       <button class="secondary-button" data-view="sources">Configure sources <span>↗</span></button>
@@ -169,16 +174,27 @@ function render() {
   };
   const app = document.querySelector('#app');
   app.innerHTML = `<div class="app-shell">
-    <aside class="sidebar">
+    <header class="topbar rogue-topbar">
       <a class="brand" href="#" data-view="overview"><span class="brand-symbol">R<span>Ø</span></span><span class="brand-wordmark">RØGUE<small>AUTONOMOUS OS</small></span></a>
-      <div class="workspace-label">WORKSPACE <span>⌄</span></div><div class="workspace-card"><div class="workspace-avatar">Ω</div><div><strong>Omega Core</strong><small>Personal workspace</small></div><span class="workspace-menu">•••</span></div>
-      <div class="nav-label">COMMAND</div><nav>${navItem('overview','Overview')}${navItem('discovery','Discovery')}${navItem('sources','Sources & Integrations')}</nav>
-      <div class="nav-label">COMMERCE</div><nav>${navItem('products','Product Engine')}${navItem('creative','Creative Services')}</nav>
-      <div class="nav-label">SYSTEM</div><nav>${navItem('activity','Activity Logs')}${navItem('settings','Settings')}</nav>
-      <div class="sidebar-bottom"><div class="runtime-card"><div class="runtime-heading"><span class="status-dot"></span> OMEGA CONTROL <span class="pill muted">SAFE</span></div><p>Autonomous actions are paused until backend controls are configured.</p><div class="runtime-bar"><span></span></div><small>SAFETY MODE · ACTIVE</small></div><div class="profile-row"><div class="profile-avatar">R</div><div><strong>Operator</strong><small>System administrator</small></div><span class="profile-dots">•••</span></div></div>
-    </aside>
-    <main class="main-area"><header class="topbar"><div class="breadcrumb"><span>RØGUE OS</span><b>/</b><strong>${state.activeView === 'overview' ? 'Command' : state.activeView === 'sources' ? 'Sources & Integrations' : state.activeView[0].toUpperCase()+state.activeView.slice(1)}</strong></div><div class="topbar-right"><span class="environment"><i></i> WORKER LIVE</span><button class="icon-button top-icon" id="help-button" aria-label="About this preview">?</button><div class="top-avatar">R</div></div></header><div class="page-content">${(views[state.activeView] || overview)()}</div><footer class="app-footer"><span>RØGUE AUTONOMOUS COMMERCE OS <b>·</b> FOUNDATION 0.2.0</span><span>BUILT FOR CONTROL. DESIGNED FOR SCALE.</span></footer></main>
+      <nav class="top-navigation" aria-label="Main navigation">
+        ${navItem('overview','Command')}${navItem('discovery','Discovery')}${navItem('sources','Sources')}${navItem('products','Products')}${navItem('creative','Creative')}${navItem('activity','Logs')}
+      </nav>
+      <div class="topbar-right"><span class="environment"><i></i> ${state.health.toUpperCase()}</span><button class="icon-button top-icon" id="help-button" aria-label="About RØGUE">?</button><button class="top-avatar top-settings" data-view="settings" aria-label="Settings">R</button></div>
+    </header>
+    <main class="main-area"><div class="page-content">${(views[state.activeView] || overview)()}</div><footer class="app-footer"><span>RØGUE AUTONOMOUS COMMERCE OS <b>·</b> FOUNDATION 0.3.0</span><span>BUILT FOR CONTROL. DESIGNED FOR SCALE.</span></footer></main>
+    <div class="info-backdrop" id="info-backdrop" hidden><section class="info-modal" role="dialog" aria-modal="true" aria-labelledby="info-title"><button class="info-close" id="info-close" aria-label="Close information">×</button><div class="eyebrow">RØGUE INTELLIGENCE</div><h2 id="info-title">Information</h2><p id="info-body"></p><button class="primary-button" id="info-done">Understood <span>↗</span></button></section></div>
   </div>`;
+  const openInfo = (title, body) => { const modal = document.querySelector('#info-backdrop'); if (!modal) return; document.querySelector('#info-title').textContent = title || 'Information'; document.querySelector('#info-body').textContent = body || ''; modal.hidden = false; document.querySelector('#info-close')?.focus(); };
+  const closeInfo = () => { const modal = document.querySelector('#info-backdrop'); if (modal) modal.hidden = true; };
+  document.querySelectorAll('[data-info]').forEach((el) => {
+    const show = () => openInfo(el.dataset.infoTitle, el.dataset.info);
+    el.addEventListener('click', (event) => { if (event.target.closest('button[data-view],button.text-button')) return; show(); });
+    el.addEventListener('keydown', (event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); show(); } });
+  });
+  document.querySelector('#info-close')?.addEventListener('click', closeInfo);
+  document.querySelector('#info-done')?.addEventListener('click', closeInfo);
+  document.querySelector('#info-backdrop')?.addEventListener('click', (event) => { if (event.target.id === 'info-backdrop') closeInfo(); });
+  document.addEventListener('keydown', (event) => { if (event.key === 'Escape') closeInfo(); }, { once: true });
   document.querySelectorAll('[data-view]').forEach((el) => el.addEventListener('click', (event) => {
     event.preventDefault();
     state.activeView = el.dataset.view;
