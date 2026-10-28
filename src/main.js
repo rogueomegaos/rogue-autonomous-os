@@ -78,9 +78,9 @@ function overview() {
       <button class="primary-button" id="run-discovery"><span>↗</span> Run discovery</button>
     </section>
     <section class="metrics-grid">
-      ${metric('OPPORTUNITIES FOUND','—','Awaiting first discovery','⌕')}
+      ${metric('OPPORTUNITIES FOUND',String(state.opportunities.length).padStart(2,'0'),'Registered candidate opportunities','⌕')}
       ${metric('SOURCES CONNECTED',String(state.sources.length).padStart(2,'0'),'Manual and API sources','⌘')}
-      ${metric('PRODUCTS LIVE','00','Catalog not configured','◇')}
+      ${metric('PRODUCTS LIVE',String(state.products.filter(p => p.status === 'published').length).padStart(2,'0'),state.products.length + ' catalog records','◇')}
       ${metric('SYSTEM HEALTH',state.health,'Runtime status','◉')}
     </section>
     <section class="content-grid">
@@ -114,7 +114,7 @@ function sourcesView() {
         <label>Source type<select name="type"><option value="website">Public website</option><option value="rss">RSS feed</option><option value="api">API endpoint</option></select></label>
         <label class="full-field">URL<input name="url" type="url" placeholder="https://example.com/opportunities" required /></label>
         <label class="full-field">Notes <textarea name="notes" placeholder="What should this source be used for? (optional)" rows="3" maxlength="500"></textarea></label>
-        <div class="form-actions"><p>Only add sources you are authorized to access. Fetching and SSRF protections are not enabled in this UI-only stage.</p><button class="primary-button" type="submit">Add source <span>＋</span></button></div>
+        <div class="form-actions"><p>Only add sources you are authorized to access. The server rejects local/private IPs and embedded URL credentials. No source fetching runs automatically.</p><button class="primary-button" type="submit">Add source <span>＋</span></button></div>
       </form>
     </section>
     <section class="panel"><div class="panel-heading"><div><div class="eyebrow">REGISTERED INPUTS</div><h2>Source inventory</h2></div><span class="pill">${state.sources.length} TOTAL</span></div>
@@ -177,7 +177,7 @@ function render() {
       <div class="nav-label">SYSTEM</div><nav>${navItem('activity','Activity Logs')}${navItem('settings','Settings')}</nav>
       <div class="sidebar-bottom"><div class="runtime-card"><div class="runtime-heading"><span class="status-dot"></span> OMEGA CONTROL <span class="pill muted">SAFE</span></div><p>Autonomous actions are paused until backend controls are configured.</p><div class="runtime-bar"><span></span></div><small>SAFETY MODE · ACTIVE</small></div><div class="profile-row"><div class="profile-avatar">R</div><div><strong>Operator</strong><small>System administrator</small></div><span class="profile-dots">•••</span></div></div>
     </aside>
-    <main class="main-area"><header class="topbar"><div class="breadcrumb"><span>RØGUE OS</span><b>/</b><strong>${state.activeView === 'overview' ? 'Command' : state.activeView === 'sources' ? 'Sources & Integrations' : state.activeView[0].toUpperCase()+state.activeView.slice(1)}</strong></div><div class="topbar-right"><span class="environment"><i></i> WORKER LIVE</span><button class="icon-button top-icon" id="help-button" aria-label="About this preview">?</button><div class="top-avatar">R</div></div></header><div class="page-content">${(views[state.activeView] || overview)()}</div><footer class="app-footer"><span>RØGUE AUTONOMOUS COMMERCE OS <b>·</b> FOUNDATION 0.1.0</span><span>BUILT FOR CONTROL. DESIGNED FOR SCALE.</span></footer></main>
+    <main class="main-area"><header class="topbar"><div class="breadcrumb"><span>RØGUE OS</span><b>/</b><strong>${state.activeView === 'overview' ? 'Command' : state.activeView === 'sources' ? 'Sources & Integrations' : state.activeView[0].toUpperCase()+state.activeView.slice(1)}</strong></div><div class="topbar-right"><span class="environment"><i></i> WORKER LIVE</span><button class="icon-button top-icon" id="help-button" aria-label="About this preview">?</button><div class="top-avatar">R</div></div></header><div class="page-content">${(views[state.activeView] || overview)()}</div><footer class="app-footer"><span>RØGUE AUTONOMOUS COMMERCE OS <b>·</b> FOUNDATION 0.2.0</span><span>BUILT FOR CONTROL. DESIGNED FOR SCALE.</span></footer></main>
   </div>`;
   document.querySelectorAll('[data-view]').forEach((el) => el.addEventListener('click', (event) => {
     event.preventDefault();
