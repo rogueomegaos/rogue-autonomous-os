@@ -15,14 +15,25 @@ function safeSourceUrl(value) {
   let url;
   try { url = new URL(value); } catch { return null; }
   if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) return null;
-  const host = url.hostname.toLowerCase();
-  if (host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local') ||
-      host === 'metadata.google.internal' || host === '169.254.169.254' ||
-      host === '127.0.0.1' || host === '::1' || host.startsWith('10.') ||
-      host.startsWith('192.168.') || host.startsWith('172.16.') ||
-      host.startsWith('172.17.') || host.startsWith('172.18.') ||
-      host.startsWith('172.19.') || host.startsWith('172.2') ||
-      host.startsWith('172.30.') || host.startsWith('172.31.')) return null;
+  const host = url.hostname.toLowerCase().replace(/^\\[|\\]$/g, '');
+  if (!host || host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local') ||
+      host === 'metadata.google.internal' || host.endsWith('.internal')) return null;
+
+  // Reject literal IPv6 hosts until a resolver-aware public-address policy exists.
+  if (host.includes(':')) return null;
+  const octets = host.split('.');
+  if (octets.length === 4 && octets.every(part => /^\\d{1,3}$/.test(part) && Number(part) <= 255)) {
+    const [a, b, c] = octets.map(Number);
+    if (a === 0 || a === 10 || a === 127 || a >= 224 ||
+        (a === 100 && b >= 64 && b <= 127) ||
+        (a === 169 && b === 254) ||
+        (a === 172 && b >= 16 && b <= 31) ||
+        (a === 192 && b === 168) ||
+        (a === 192 && b === 0 && c === 0) ||
+        (a === 198 && (b === 18 || b === 19)) ||
+        (a === 198 && b === 51 && c === 100) ||
+        (a === 203 && b === 0 && c === 113)) return null;
+  }
   return url.href;
 }
 
