@@ -1,0 +1,17 @@
+{
+  "name": "rogue-autonomous-os",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "cf:dev": "wrangler dev",
+    "cf:deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "vite": "^6.4.1",
+    "wrangler": "^4.20.0"
+  }
+}
