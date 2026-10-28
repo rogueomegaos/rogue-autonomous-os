@@ -1,0 +1,15 @@
+{
+  "id": "/",
+  "name": "RØGUE Autonomous Commerce OS",
+  "short_name": "RØGUE OS",
+  "description": "Opportunity intelligence and commerce operations command center.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0b0b0e",
+  "theme_color": "#0b0b0e",
+  "orientation": "any",
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}
