@@ -39,6 +39,23 @@ async function refreshAll() {
   await Promise.all([refreshSources(), refreshCollection('/api/opportunities', 'opportunities', 'opportunities'), refreshCollection('/api/products', 'products', 'products'), refreshCollection('/api/creative-jobs', 'jobs', 'creativeJobs'), refreshCollection('/api/audit', 'events', 'auditEvents'), refreshHealth()]);
 }
 
+
+const SOURCE_CATALOG = [
+  { id:'github-releases', name:'GitHub Releases', category:'Open source', type:'api', url:'https://api.github.com/repos/vercel/next.js/releases', description:'Release baharu projek open-source, tools developer dan peluang ekosistem.', cost:'Percuma', tags:'github open source software developer releases' },
+  { id:'huggingface-models', name:'Hugging Face Models', category:'AI & open source', type:'api', url:'https://huggingface.co/api/models?sort=downloads&limit=20', description:'Direktori model AI awam untuk mencari model, demo dan projek baharu.', cost:'Percuma', tags:'ai machine learning models open source' },
+  { id:'hacker-news', name:'Hacker News Top Stories', category:'Teknologi', type:'api', url:'https://hacker-news.firebaseio.com/v0/topstories.json', description:'Cerita teknologi, startup dan projek yang sedang mendapat perhatian.', cost:'Percuma', tags:'startup technology tech news' },
+  { id:'dev-community', name:'DEV Community', category:'Teknologi', type:'api', url:'https://dev.to/api/articles?per_page=30', description:'Artikel komuniti pembangun, tutorial dan projek open-source.', cost:'Percuma', tags:'developer tutorials open source' },
+  { id:'remoteok', name:'Remote OK', category:'Kerja & pendapatan', type:'api', url:'https://remoteok.com/api', description:'Senarai kerja remote awam; semak kelayakan negara dan syarat setiap jawatan.', cost:'Percuma', tags:'remote jobs work income' },
+  { id:'arbeitnow', name:'Arbeitnow Job Board', category:'Kerja & pendapatan', type:'api', url:'https://www.arbeitnow.com/api/job-board-api', description:'API papan kerja awam. Liputan lokasi berbeza, jadi tapis peluang yang menerima pemohon Malaysia.', cost:'Percuma', tags:'jobs employment remote work' },
+  { id:'openalex', name:'OpenAlex', category:'Penyelidikan', type:'api', url:'https://api.openalex.org/works?search=artificial%20intelligence&per-page=25', description:'Data terbuka penyelidikan akademik untuk mencari kajian, institusi dan penulis.', cost:'Percuma', tags:'research academic open data' },
+  { id:'zenodo', name:'Zenodo', category:'Penyelidikan', type:'api', url:'https://zenodo.org/api/records/?sort=mostrecent&page=1', description:'Repositori penyelidikan dan dataset; semak lesen setiap rekod sebelum guna semula.', cost:'Percuma', tags:'research dataset open access' },
+  { id:'public-apis', name:'Public APIs Directory', category:'Open source', type:'website', url:'https://github.com/public-apis/public-apis', description:'Senarai komuniti API awam untuk integrasi dan prototaip.', cost:'Percuma', tags:'api directory github open source' },
+  { id:'myfuturejobs', name:'MYFutureJobs', category:'Malaysia', type:'website', url:'https://www.myfuturejobs.gov.my/', description:'Portal pekerjaan Malaysia. Gunakan sebagai sumber rujukan dan semak syarat rasmi.', cost:'Percuma', tags:'malaysia jobs career pekerjaan' },
+  { id:'mdec', name:'MDEC', category:'Malaysia', type:'website', url:'https://mdec.my/', description:'Program ekonomi digital, inisiatif industri dan pengumuman rasmi Malaysia.', cost:'Percuma', tags:'malaysia digital grants startup program' },
+  { id:'cradle', name:'Cradle Fund', category:'Malaysia', type:'website', url:'https://cradle.com.my/', description:'Maklumat program sokongan dan pembiayaan startup; semak status dan syarat semasa.', cost:'Percuma', tags:'malaysia startup funding grant' },
+  { id:'mosti', name:'MOSTI', category:'Malaysia', type:'website', url:'https://www.mosti.gov.my/', description:'Pengumuman rasmi berkaitan sains, teknologi, inovasi dan program berkaitan.', cost:'Percuma', tags:'malaysia science technology innovation' }
+];
+
 const icons = {
   overview: '◈',
   discovery: '⌕',
@@ -121,6 +138,12 @@ function sourcesView() {
         <label class="full-field">Notes <textarea name="notes" placeholder="What should this source be used for? (optional)" rows="3" maxlength="500"></textarea></label>
         <div class="form-actions"><p>Only add sources you are authorized to access. The server rejects local/private IPs and embedded URL credentials. No source fetching runs automatically.</p><button class="primary-button" type="submit">Add source <span>＋</span></button></div>
       </form>
+    </section>
+
+    <section class="panel source-catalog-panel"><div class="panel-heading"><div><div class="eyebrow">FREE & OPEN SOURCES</div><h2>Source integration library</h2><p class="subhead">Pilih sumber untuk pra-isi borang. Penambahan memerlukan admin token; data tidak diambil secara automatik.</p></div><span class="pill">${SOURCE_CATALOG.length} SOURCES</span></div>
+      <label class="catalog-search-label">Cari sumber<input id="source-catalog-search" type="search" placeholder="Cari API, open-source, kerja, Malaysia…" autocomplete="off" /></label>
+      <div class="source-catalog-grid" id="source-catalog-grid">${SOURCE_CATALOG.map(source => `<article class="source-catalog-card" data-catalog-search="${escapeHtml((source.name+' '+source.category+' '+source.tags+' '+source.description).toLowerCase())}"><div class="source-catalog-meta"><span class="pill">${escapeHtml(source.category)}</span><span class="source-free">${escapeHtml(source.cost)}</span></div><h3>${escapeHtml(source.name)}</h3><p>${escapeHtml(source.description)}</p><div class="source-catalog-url">${escapeHtml(source.url)}</div><button type="button" class="secondary-button catalog-add-button" data-catalog-source="${escapeHtml(source.id)}">Gunakan sumber <span>＋</span></button></article>`).join('')}</div>
+      <p class="catalog-disclaimer">Nota: “Percuma” tidak semestinya bermaksud semua data bebas digunakan semula. Semak terma penggunaan, lesen, had kadar API dan kelayakan Malaysia sebelum bergantung pada sesuatu sumber.</p>
     </section>
     <section class="panel"><div class="panel-heading"><div><div class="eyebrow">REGISTERED INPUTS</div><h2>Source inventory</h2></div><span class="pill">${state.sources.length} TOTAL</span></div>
       <div id="source-inventory">${renderSources()}</div></section>`;
@@ -258,6 +281,25 @@ function render() {
     state.activeView = 'discovery';
     render();
   });
+
+  document.querySelector('#source-catalog-search')?.addEventListener('input', (event) => {
+    const query = String(event.currentTarget.value || '').trim().toLowerCase();
+    document.querySelectorAll('.source-catalog-card').forEach(card => { card.hidden = !card.dataset.catalogSearch.includes(query); });
+  });
+  document.querySelectorAll('[data-catalog-source]').forEach(button => button.addEventListener('click', () => {
+    const source = SOURCE_CATALOG.find(item => item.id === button.dataset.catalogSource);
+    const form = document.querySelector('#source-form');
+    if (!source || !form) return;
+    form.elements.name.value = source.name;
+    form.elements.type.value = source.type;
+    form.elements.url.value = source.url;
+    form.elements.notes.value = source.description + ' | Free/public source; verify terms, rate limits, licensing and Malaysia eligibility. No automatic fetching is enabled.';
+    form.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    form.elements.name.focus({ preventScroll: true });
+    const submit = form.querySelector('button[type="submit"]');
+    submit.innerHTML = 'Review & add source <span>＋</span>';
+  }));
+
   document.querySelector('#source-form')?.addEventListener('submit', async (event) => {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
