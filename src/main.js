@@ -245,7 +245,7 @@ function render() {
     try {
       await apiRequest('/api/sources');
       result.textContent = 'Connected. Source API authentication succeeded.';
-      await refreshSources();
+      await refreshAll();
     } catch (error) {
       result.textContent = 'Connection failed: ' + error.message + '. Check Worker deployment and the ROGUE_ADMIN_TOKEN secret.';
     }
