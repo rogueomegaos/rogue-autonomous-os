@@ -82,6 +82,43 @@ async function api(request, env, url) {
     return json({ products: results || [] });
   }
 
+  // Provider-neutral webhook contract. Provider-specific signature verification still must be mapped before live use.
+  if (url.pathname === '/api/webhooks/payment' && request.method === 'POST') {
+    if (!env.PAYMENT_WEBHOOK_SECRET || env.PAYMENT_WEBHOOK_SECRET.length < 32) return json({ error: 'payment_webhook_not_configured' }, 503);
+    const raw = await request.text();
+    if (raw.length > MAX_BODY) return json({ error: 'request_body_too_large' }, 413);
+    const signature = (request.headers.get('x-rogue-signature') || '').replace(/^sha256=/, '').toLowerCase();
+    const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(env.PAYMENT_WEBHOOK_SECRET), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+    const signed = new Uint8Array(await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(raw)));
+    const expected = Array.from(signed, byte => byte.toString(16).padStart(2, '0')).join('');
+    if (signature.length !== expected.length) return json({ error: 'invalid_signature' }, 401);
+    let mismatch = 0;
+    for (let i = 0; i < expected.length; i++) mismatch |= expected.charCodeAt(i) ^ signature.charCodeAt(i);
+    if (mismatch) return json({ error: 'invalid_signature' }, 401);
+    let body;
+    try { body = JSON.parse(raw); } catch { return json({ error: 'invalid_json' }, 400); }
+    const eventId = String(body.event_id || '');
+    const orderId = String(body.order_id || '');
+    const provider = String(body.provider || '').slice(0, 60);
+    const reference = String(body.provider_reference || '').slice(0, 180);
+    const status = String(body.status || '');
+    if (!eventId || eventId.length > 180 || !/^[0-9a-f-]{36}$/i.test(orderId) || !provider || !reference || !['paid','failed','cancelled','refunded'].includes(status)) return json({ error: 'invalid_payment_event' }, 400);
+    const seen = await env.DB.prepare('SELECT event_id FROM payment_events WHERE event_id = ?').bind(eventId).first();
+    if (seen) return json({ ok: true, duplicate: true });
+    const order = await env.DB.prepare('SELECT id, total_minor, currency, status FROM orders WHERE id = ?').bind(orderId).first();
+    if (!order) return json({ error: 'order_not_found' }, 404);
+    if (status === 'paid') {
+      if (Number(body.amount_minor) !== order.total_minor || String(body.currency || '').toUpperCase() !== order.currency) return json({ error: 'payment_amount_mismatch' }, 409);
+      if (order.status !== 'pending' && order.status !== 'paid') return json({ error: 'order_not_payable' }, 409);
+      await env.DB.prepare("UPDATE orders SET status = 'paid', payment_provider = ?, provider_reference = ?, paid_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ? AND status = 'pending'").bind(provider, reference, orderId).run();
+    } else if (order.status === 'pending') {
+      await env.DB.prepare('UPDATE orders SET status = ? WHERE id = ? AND status = ?').bind(status, orderId, 'pending').run();
+    }
+    await env.DB.prepare('INSERT INTO payment_events (event_id, order_id, provider, provider_reference, event_status, payload_json) VALUES (?, ?, ?, ?, ?, ?)').bind(eventId, orderId, provider, reference, status, JSON.stringify({ eventId, orderId, status, amount_minor: body.amount_minor, currency: body.currency }).slice(0, 3000)).run();
+    await audit(env, 'payment.webhook_processed', 'Signed payment event processed', 'info', { orderId, provider, status, eventId });
+    return json({ ok: true });
+  }
+
   // Server-priced order intent. Payment is not considered complete until a signed provider webhook is integrated.
   if (url.pathname === '/api/checkout' && request.method === 'POST') {
     let body;
