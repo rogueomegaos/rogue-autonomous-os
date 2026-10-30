@@ -20,13 +20,13 @@ A modular foundation for opportunity discovery, lead intelligence, digital comme
 
 ## Required account configuration
 
-The live Worker currently has **no Worker secrets configured**. Protected writes therefore remain read-only until an administrator configures a strong `ROGUE_ADMIN_TOKEN` secret (at least 32 characters) in Cloudflare Workers & Pages → `rogue-autonomous-os` → Settings → Variables and Secrets, then enters the same value in the app Settings page. Never commit secrets to GitHub or source files.
+The Worker `ROGUE_ADMIN_TOKEN` secret binding is present, and the dashboard Settings page has reported `Source API authentication succeeded` after a token was entered. This confirms the dashboard's connection test, but does not independently prove every protected route or invalid-token rejection. Never commit the token to GitHub or source files. Because a token was previously exposed in conversation, rotate it to a fresh random value in Cloudflare and update the dashboard session value before public launch.
 
 Additional configuration before commerce can go live:
 
 - `PAYMENT_WEBHOOK_SECRET`: at least 32 random characters. The generic webhook expects an HMAC-SHA256 signature in `X-Rogue-Signature: sha256=<hex>` over the exact raw JSON request body. A provider-specific adapter is still required before connecting a real payment provider.
 - Bind a private Cloudflare R2 bucket to the Worker as `PRODUCT_FILES`. Store digital assets there and set each product's `asset_key` through a controlled admin workflow before enabling customer downloads.
-- Add GitHub repository Actions secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` to enable the guarded auto-deploy job. Without these, CI validates but deployment is skipped.
+- Add GitHub repository Actions secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` to enable the guarded auto-deploy job. The latest inspected workflow run (30 Oct 2026) passed tests/build but **skipped deployment** because both secrets were empty. A green workflow is therefore not proof that the latest code is deployed.
 - Ensure the D1 migrations are applied before enabling the new payment event and download-grant routes.
 
 ## API status
@@ -62,7 +62,7 @@ npm run build
 npm run cf:deploy
 ```
 
-GitHub Actions validates tests and the production build on pushes and pull requests. On pushes to `main`, it applies D1 migrations and deploys only when `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` are configured as repository Actions secrets.
+GitHub Actions validates tests and the production build on pushes and pull requests. On pushes to `main`, it applies D1 migrations and deploys only when `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` are configured as repository Actions secrets. Check the deploy job logs for `Deployment skipped`; job success alone does not mean deployment occurred.
 
 ## Security and launch limits
 
