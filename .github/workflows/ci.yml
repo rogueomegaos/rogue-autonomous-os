@@ -43,5 +43,8 @@ jobs:
             echo "::error::Deployment blocked. Configure CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID in repository Actions secrets."
             exit 1
           fi
+          echo "Checking Cloudflare token identity and account access..."
+          npx wrangler whoami
+          echo "Applying D1 migrations..."
           npx wrangler d1 migrations apply rogue-autonomous-os --remote
           npx wrangler deploy
