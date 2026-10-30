@@ -84,6 +84,28 @@ async function api(request, env, url) {
     return json({ products: results || [] });
   }
 
+  // Download delivery requires a private R2 binding; the grant alone never bypasses paid-order checks.
+  if (url.pathname === '/api/download' && request.method === 'GET') {
+    if (!env.PRODUCT_FILES) return json({ error: 'private_asset_storage_not_configured' }, 503);
+    const grant = url.searchParams.get('grant') || '';
+    if (!/^[0-9a-f]{64}$/.test(grant)) return json({ error: 'invalid_download_grant' }, 401);
+    const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(grant)));
+    const hash = Array.from(digest, byte => byte.toString(16).padStart(2, '0')).join('');
+    const row = await env.DB.prepare("SELECT g.order_id FROM order_download_grants g JOIN orders o ON o.id = g.order_id WHERE g.grant_hash = ? AND g.expires_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now') AND o.status = 'paid'").bind(hash).first();
+    if (!row) return json({ error: 'grant_invalid_or_order_unpaid' }, 403);
+    const { results } = await env.DB.prepare('SELECT p.asset_key FROM order_items i JOIN products p ON p.id = i.product_id WHERE i.order_id = ?').bind(row.order_id).all();
+    const keys = (results || []).map(item => item.asset_key).filter(Boolean);
+    if (!keys.length) return json({ error: 'product_asset_not_attached' }, 404);
+    if (keys.length !== 1) return json({ error: 'multiple_asset_delivery_not_supported' }, 501);
+    const object = await env.PRODUCT_FILES.get(keys[0]);
+    if (!object) return json({ error: 'asset_not_found' }, 404);
+    const headers = new Headers({ 'cache-control': 'private, no-store', 'x-content-type-options': 'nosniff' });
+    object.writeHttpMetadata(headers);
+    headers.set('cache-control', 'private, no-store');
+    headers.set('content-disposition', 'attachment; filename="' + (keys[0].split('/').pop() || 'download').replace(/[^a-zA-Z0-9._-]/g, '_') + '"');
+    return new Response(object.body, { headers });
+  }
+
   // Provider-neutral webhook contract. Provider-specific signature verification still must be mapped before live use.
   if (url.pathname === '/api/webhooks/payment' && request.method === 'POST') {
     if (!env.PAYMENT_WEBHOOK_SECRET || env.PAYMENT_WEBHOOK_SECRET.length < 32) return json({ error: 'payment_webhook_not_configured' }, 503);
@@ -151,8 +173,14 @@ async function api(request, env, url) {
     for (const entry of pricedItems) {
       await env.DB.prepare('INSERT INTO order_items (order_id, product_id, quantity, unit_price_minor) VALUES (?, ?, ?, ?)').bind(orderId, entry.product.id, entry.quantity, entry.product.price_minor).run();
     }
+    const grantBytes = crypto.getRandomValues(new Uint8Array(32));
+    const grant = Array.from(grantBytes, byte => byte.toString(16).padStart(2, '0')).join('');
+    const grantDigest = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(grant)));
+    const grantHash = Array.from(grantDigest, byte => byte.toString(16).padStart(2, '0')).join('');
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+    await env.DB.prepare('INSERT INTO order_download_grants (grant_hash, order_id, expires_at) VALUES (?, ?, ?)').bind(grantHash, orderId, expiresAt).run();
     await audit(env, 'order.created', 'Pending order intent created; no payment received', 'info', { orderId, totalMinor: total });
-    return json({ order_id: orderId, status: 'pending', currency: 'MYR', total_minor: total, payment_status: 'not_started', message: 'Payment gateway is not configured. This order is not paid.' }, 201);
+    return json({ order_id: orderId, status: 'pending', currency: 'MYR', total_minor: total, payment_status: 'not_started', download_grant: grant, download_expires_at: expiresAt, message: 'Payment gateway is not configured. This order is not paid. Download access remains blocked until verified payment.' }, 201);
   }
 
   if (!authorized(request, env)) return json({ error: 'unauthorized', message: 'Set the ROGUE_ADMIN_TOKEN secret in the Worker and provide it in this browser session.' }, 401);
