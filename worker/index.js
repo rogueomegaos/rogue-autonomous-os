@@ -254,6 +254,14 @@ async function api(request, env, url) {
     await audit(env, 'opportunity.reviewed', 'Opportunity review status changed', status === 'rejected' ? 'warning' : 'info', { opportunityId: opportunityMatch[1], status, score });
     return json({ ok: true, status, score });
   }
+  const publishMatch = url.pathname.match(/^\/api\/products\/([0-9a-f-]{36})\/publish$/i);
+  if (publishMatch && request.method === 'POST') {
+    const result = await env.DB.prepare("UPDATE products SET status = 'published', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ? AND status = 'draft'").bind(publishMatch[1]).run();
+    if (!result.meta?.changes) return json({ error: 'draft_product_not_found' }, 404);
+    await audit(env, 'product.published', 'Product published to the public catalog', 'info', { productId: publishMatch[1] });
+    return json({ ok: true, status: 'published', id: publishMatch[1] });
+  }
+
   if (url.pathname === '/api/products' && request.method === 'POST') {
     let body;
     try { body = await readJson(request); } catch { return json({ error: 'invalid_json_or_body_too_large' }, 400); }
