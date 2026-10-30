@@ -227,4 +227,42 @@ export default {
       return json({ error: 'internal_error', request_id: crypto.randomUUID() }, 500);
     }
   },
+  async scheduled(controller, env, ctx) {
+    if (!env.DB) return;
+    ctx.waitUntil((async () => {
+      const { results: feeds } = await env.DB.prepare("SELECT id, url FROM sources WHERE source_type = 'rss' AND status = 'registered' LIMIT 20").all();
+      for (const feed of feeds || []) {
+        try {
+          const sourceUrl = safeSourceUrl(feed.url);
+          if (!sourceUrl || !sourceUrl.startsWith('https://')) throw new Error('Only public HTTPS feeds are supported');
+          const response = await fetch(sourceUrl, { redirect: 'manual', signal: AbortSignal.timeout(7000), headers: { accept: 'application/rss+xml, application/atom+xml, application/xml, text/xml' } });
+          if (!response.ok || (response.status >= 300 && response.status < 400)) throw new Error('Feed request rejected');
+          const contentType = (response.headers.get('content-type') || '').toLowerCase();
+          if (!/xml|rss|atom/.test(contentType)) throw new Error('Feed did not return XML');
+          if (Number(response.headers.get('content-length') || 0) > 300000) throw new Error('Feed is too large');
+          const xml = await response.text();
+          if (xml.length > 300000) throw new Error('Feed is too large');
+          const entries = xml.match(/<(?:item|entry)\\b[^>]*>[\\s\\S]*?<\\/(?:item|entry)>/gi) || [];
+          for (const entry of entries.slice(0, 15)) {
+            const tag = (name) => {
+              const m = entry.match(new RegExp('<' + name + '(?:\\\\s+[^>]*)?>([\\s\\S]*?)<\\/' + name + '>', 'i'));
+              return m ? m[1].replace(/<!\\[CDATA\\[([\\s\\S]*?)\\]\\]>/g, '$1').replace(/<[^>]+>/g, ' ').replace(/&amp;/g, '&').trim() : '';
+            };
+            const title = tag('title').slice(0, 200);
+            const atom = entry.match(/<link\\b[^>]*href=["']([^"']+)["']/i);
+            const target = safeSourceUrl(atom ? atom[1] : tag('link'));
+            const description = tag('description') || tag('summary');
+            if (!title || !target || !target.startsWith('https://')) continue;
+            const exists = await env.DB.prepare('SELECT id FROM opportunities WHERE source_id = ? AND target_url = ? LIMIT 1').bind(feed.id, target).first();
+            if (exists) continue;
+            await env.DB.prepare("INSERT INTO opportunities (id, source_id, title, description, target_url, category, legitimacy_status, score, evidence_json) VALUES (?, ?, ?, ?, ?, 'rss_discovery', 'pending_review', 0, ?)").bind(id(), feed.id, title, description.slice(0, 2000), target, JSON.stringify([{ feed: feed.url, discovered_at: new Date().toISOString() }])).run();
+          }
+          await audit(env, 'source.fetch_succeeded', 'RSS feed checked; candidates require manual review', 'info', { sourceId: feed.id });
+        } catch (error) {
+          await env.DB.prepare("UPDATE sources SET status = 'error', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?").bind(feed.id).run();
+          await audit(env, 'source.fetch_failed', 'RSS feed check failed', 'warning', { sourceId: feed.id, reason: String(error).slice(0, 160) });
+        }
+      }
+    })());
+  },
 };
