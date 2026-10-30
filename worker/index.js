@@ -75,6 +75,13 @@ async function api(request, env, url) {
   }
   if (!url.pathname.startsWith('/api/')) return null;
   if (!env.DB) return json({ error: 'database_unconfigured' }, 503);
+
+  // Public catalog exposes published metadata only, never private asset keys.
+  if (url.pathname === '/api/catalog' && request.method === 'GET') {
+    const { results } = await env.DB.prepare("SELECT id, title, slug, description, price_minor, currency FROM products WHERE status = 'published' ORDER BY created_at DESC LIMIT 100").all();
+    return json({ products: results || [] });
+  }
+
   if (!authorized(request, env)) return json({ error: 'unauthorized', message: 'Set the ROGUE_ADMIN_TOKEN secret in the Worker and provide it in this browser session.' }, 401);
 
   if (url.pathname === '/api/sources' && request.method === 'GET') {
