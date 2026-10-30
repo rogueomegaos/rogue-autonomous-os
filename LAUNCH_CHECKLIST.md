@@ -7,12 +7,14 @@ Last reviewed: 2026-10-31
 - [x] Latest inspected validation job (commit `836e072`, 2026-10-30) passed `npm test` and `npm run build`.
 - [x] Dashboard Settings reports `Source API authentication succeeded` for the token entered in that browser session.
 - [x] Worker source includes a public health route, protected admin routes, RSS candidate intake, pending checkout orders, HMAC-signed generic payment-event intake, and paid-order gated download grants.
+- [x] Cloudflare D1 was inspected directly. The initial schema tables existed, while payment/download-grant tables and migration ledger were missing; the missing tables and migration records were applied additively and then verified.
+- [x] Registered Remote OK's public RSS feed in D1 with attribution guidance. Its entries remain candidates, not verified offers.
 
 ## Blocking public launch
 - [ ] Rotate the previously exposed admin token to a fresh random secret; verify valid token succeeds and missing/incorrect tokens return 401/403 on protected routes.
 - [ ] Configure GitHub Actions repository secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`. The inspected deploy run on 2026-10-30 passed validation but skipped deployment because these were empty. CI now fails explicitly when they remain absent.
-- [ ] Verify all D1 migrations are applied remotely and health reports database connected.
-- [ ] Create/bind a private R2 bucket as `PRODUCT_FILES`; upload one harmless test asset and verify unauthorized/unpaid grants cannot download it.
+- [ ] Verify the live Worker health route reports database connected after the additive D1 repair; ensure future Wrangler migration runs reconcile with the recorded migration ledger.
+- [ ] Enable R2 on the Cloudflare account (the API currently returns error `10042` saying R2 must be enabled in the dashboard), then create/bind a private R2 bucket as `PRODUCT_FILES`; upload one harmless test asset and verify unauthorized/unpaid grants cannot download it.
 - [ ] Choose and configure a real payment provider account. Implement its official signature verification adapter; the current generic HMAC webhook is not a Stripe, ToyyibPay, Billplz, or DuitNow integration.
 - [ ] Set a new `PAYMENT_WEBHOOK_SECRET` secret and test valid signature, invalid signature, duplicate event, amount/currency mismatch, and refund/failure states in sandbox.
 - [ ] Test checkout -> sandbox payment -> signed webhook -> paid order -> expiring download grant end-to-end.
