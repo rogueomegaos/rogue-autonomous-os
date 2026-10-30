@@ -26,7 +26,7 @@ Additional configuration before commerce can go live:
 
 - `PAYMENT_WEBHOOK_SECRET`: at least 32 random characters. The generic webhook expects an HMAC-SHA256 signature in `X-Rogue-Signature: sha256=<hex>` over the exact raw JSON request body. A provider-specific adapter is still required before connecting a real payment provider.
 - Bind a private Cloudflare R2 bucket to the Worker as `PRODUCT_FILES`. Store digital assets there and set each product's `asset_key` through a controlled admin workflow before enabling customer downloads.
-- Add GitHub repository Actions secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` to enable the guarded auto-deploy job. The latest inspected workflow run (30 Oct 2026) passed tests/build but **skipped deployment** because both secrets were empty. A green workflow is therefore not proof that the latest code is deployed.
+- Add GitHub repository Actions secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` to enable the guarded auto-deploy job. The latest inspected workflow run (30 Oct 2026) passed tests/build but **failed during the remote D1 migration with Cloudflare error 7403** (account invalid or not authorized). The Actions secrets are populated, but the account ID and token/account permissions still need to be verified. A green validation job is not proof that the latest code is deployed.
 - Ensure the D1 migrations are applied before enabling the new payment event and download-grant routes.
 
 ## API status
