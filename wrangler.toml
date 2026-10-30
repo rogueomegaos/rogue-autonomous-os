@@ -13,3 +13,6 @@ binding = "DB"
 database_name = "rogue-autonomous-os"
 database_id = "5851d827-975a-47e3-a871-4f413f20c806"
 migrations_dir = "migrations"
+
+[triggers]
+crons = ["0 */6 * * *"]
