@@ -18,6 +18,8 @@ function safeSourceUrl(value) {
   const host = url.hostname.toLowerCase().replace(/^\\[|\\]$/g, '');
   if (!host || host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local') ||
       host === 'metadata.google.internal' || host.endsWith('.internal')) return null;
+  // Block all literal IP hosts; only DNS hostnames are accepted for registered feeds.
+  if (/^[0-9.]+$/.test(host) || host.includes(':')) return null;
 
   // Reject literal IPv6 hosts until a resolver-aware public-address policy exists.
   if (host.includes(':')) return null;
