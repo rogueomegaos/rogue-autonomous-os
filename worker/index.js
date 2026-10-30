@@ -82,6 +82,40 @@ async function api(request, env, url) {
     return json({ products: results || [] });
   }
 
+  // Server-priced order intent. Payment is not considered complete until a signed provider webhook is integrated.
+  if (url.pathname === '/api/checkout' && request.method === 'POST') {
+    let body;
+    try { body = await readJson(request); } catch { return json({ error: 'invalid_json_or_body_too_large' }, 400); }
+    const email = String(body.email || '').trim().toLowerCase();
+    const items = Array.isArray(body.items) ? body.items : [];
+    if (email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return json({ error: 'invalid_email' }, 400);
+    if (!items.length || items.length > 20) return json({ error: 'invalid_items' }, 400);
+    const quantities = new Map();
+    for (const item of items) {
+      const productId = String(item.product_id || '');
+      const quantity = Number(item.quantity);
+      if (!/^[0-9a-f-]{36}$/i.test(productId) || !Number.isInteger(quantity) || quantity < 1 || quantity > 10) return json({ error: 'invalid_item' }, 400);
+      quantities.set(productId, Math.min(10, (quantities.get(productId) || 0) + quantity));
+    }
+    let total = 0;
+    const pricedItems = [];
+    for (const [productId, quantity] of quantities) {
+      const product = await env.DB.prepare("SELECT id, price_minor, currency FROM products WHERE id = ? AND status = 'published'").bind(productId).first();
+      if (!product) return json({ error: 'product_unavailable' }, 400);
+      if (product.currency !== 'MYR' || !Number.isSafeInteger(product.price_minor) || product.price_minor < 0) return json({ error: 'unsupported_price' }, 409);
+      total += product.price_minor * quantity;
+      if (!Number.isSafeInteger(total)) return json({ error: 'order_total_too_large' }, 400);
+      pricedItems.push({ product, quantity });
+    }
+    const orderId = id();
+    await env.DB.prepare("INSERT INTO orders (id, customer_email, currency, total_minor, status, payment_provider) VALUES (?, ?, 'MYR', ?, 'pending', 'unconfigured')").bind(orderId, email, total).run();
+    for (const entry of pricedItems) {
+      await env.DB.prepare('INSERT INTO order_items (order_id, product_id, quantity, unit_price_minor) VALUES (?, ?, ?, ?)').bind(orderId, entry.product.id, entry.quantity, entry.product.price_minor).run();
+    }
+    await audit(env, 'order.created', 'Pending order intent created; no payment received', 'info', { orderId, totalMinor: total });
+    return json({ order_id: orderId, status: 'pending', currency: 'MYR', total_minor: total, payment_status: 'not_started', message: 'Payment gateway is not configured. This order is not paid.' }, 201);
+  }
+
   if (!authorized(request, env)) return json({ error: 'unauthorized', message: 'Set the ROGUE_ADMIN_TOKEN secret in the Worker and provide it in this browser session.' }, 401);
 
   if (url.pathname === '/api/sources' && request.method === 'GET') {
