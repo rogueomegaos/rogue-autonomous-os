@@ -14,5 +14,9 @@ database_name = "rogue-autonomous-os"
 database_id = "5851d827-975a-47e3-a871-4f413f20c806"
 migrations_dir = "migrations"
 
+[[r2_buckets]]
+binding = "PRODUCT_FILES"
+bucket_name = "rogue-product-files"
+
 [triggers]
 crons = ["0 */6 * * *"]
