@@ -233,7 +233,7 @@ async function api(request, env, url) {
     if (!env.STRIPE_SECRET_KEY) return json({ error: 'stripe_not_configured' }, 503);
     const email = String(body.email || '').trim().toLowerCase();
     const items = Array.isArray(body.items) ? body.items : [];
-    if (email.length > 254 || !/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email)) return json({ error: 'invalid_email' }, 400);
+    if (email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return json({ error: 'invalid_email' }, 400);
     if (!items.length || items.length > 20) return json({ error: 'invalid_items' }, 400);
     const quantities = new Map();
     for (const item of items) {
@@ -258,11 +258,11 @@ async function api(request, env, url) {
     }
     try {
       const origin = env.PUBLIC_APP_URL || new URL(request.url).origin;
-      if (!/^https:\\/\\//.test(origin)) throw new Error('invalid_public_app_url');
+      if (!/^https:\/\/\//.test(origin)) throw new Error('invalid_public_app_url');
       const params = {
         mode: 'payment',
-        success_url: origin.replace(/\\/$/, '') + '/?checkout=success&session_id={CHECKOUT_SESSION_ID}',
-        cancel_url: origin.replace(/\\/$/, '') + '/?checkout=cancelled&order_id=' + orderId,
+        success_url: origin.replace(/\/$/, '') + '/?checkout=success&session_id={CHECKOUT_SESSION_ID}',
+        cancel_url: origin.replace(/\/$/, '') + '/?checkout=cancelled&order_id=' + orderId,
         customer_email: email,
         client_reference_id: orderId,
         'metadata[order_id]': orderId,
