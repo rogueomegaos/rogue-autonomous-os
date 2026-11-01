@@ -258,7 +258,7 @@ async function api(request, env, url) {
     }
     try {
       const origin = env.PUBLIC_APP_URL || new URL(request.url).origin;
-      if (!/^https:\/\/\//.test(origin)) throw new Error('invalid_public_app_url');
+      if (!origin.startsWith('https://')) throw new Error('invalid_public_app_url');
       const params = {
         mode: 'payment',
         success_url: origin.replace(/\/$/, '') + '/?checkout=success&session_id={CHECKOUT_SESSION_ID}',
