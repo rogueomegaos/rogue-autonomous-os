@@ -74,3 +74,26 @@ test('CORS allows the deployed Worker origin but not arbitrary sites', async () 
   }), {});
   assert.equal(denied.headers.get('access-control-allow-origin'), null);
 });
+
+test('manual discovery endpoint requires admin auth and returns a safe empty summary', async () => {
+  const token = 'd'.repeat(64);
+  const db = {
+    prepare() {
+      return {
+        first: async () => ({ ok: 1 }),
+        all: async () => ({ results: [] }),
+        bind() { return this; },
+        run: async () => ({ success: true, meta: { changes: 1 } }),
+      };
+    },
+  };
+  const denied = await worker.fetch(new Request('https://example.test/api/discovery/run', { method: 'POST', body: '{}' }), { DB: db, ROGUE_ADMIN_TOKEN: token });
+  assert.equal(denied.status, 401);
+  const allowed = await worker.fetch(new Request('https://example.test/api/discovery/run', {
+    method: 'POST',
+    headers: { authorization: 'Bearer ' + token, 'content-type': 'application/json' },
+    body: '{}',
+  }), { DB: db, ROGUE_ADMIN_TOKEN: token });
+  assert.equal(allowed.status, 200);
+  assert.deepEqual(await allowed.json(), { ok: true, feeds_checked: 0, candidates_added: 0, feeds_failed: 0 });
+});
