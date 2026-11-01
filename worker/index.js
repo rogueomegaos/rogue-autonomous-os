@@ -183,7 +183,13 @@ async function api(request, env, url) {
     return json({ order_id: orderId, status: 'pending', currency: 'MYR', total_minor: total, payment_status: 'not_started', download_grant: grant, download_expires_at: expiresAt, message: 'Payment gateway is not configured. This order is not paid. Download access remains blocked until verified payment.' }, 201);
   }
 
-  if (!authorized(request, env)) return json({ error: 'unauthorized', message: 'Set the ROGUE_ADMIN_TOKEN secret in the Worker and provide it in this browser session.' }, 401);
+  if (!authorized(request, env)) return json({ error: 'unauthorized', message: 'Open Settings and enter the Worker admin token for this browser session.' }, 401);
+
+  if (url.pathname === '/api/discovery/run' && request.method === 'POST') {
+    const result = await runRssDiscovery(env);
+    await audit(env, 'discovery.manual_run', 'Manual RSS discovery completed', 'info', result);
+    return json({ ok: true, ...result });
+  }
 
   if (url.pathname === '/api/sources' && request.method === 'GET') {
     const { results } = await env.DB.prepare('SELECT id, name, source_type AS type, url, notes, status, created_at FROM sources ORDER BY created_at DESC LIMIT 200').all();
@@ -317,6 +323,51 @@ function corsHeaders(request) {
   return headers;
 }
 
+
+async function runRssDiscovery(env) {
+  if (!env.DB) throw new Error('database_unconfigured');
+  const { results: feeds } = await env.DB.prepare("SELECT id, url FROM sources WHERE source_type = 'rss' AND status IN ('registered','error') LIMIT 20").all();
+  const summary = { feeds_checked: 0, candidates_added: 0, feeds_failed: 0 };
+  for (const feed of feeds || []) {
+    summary.feeds_checked++;
+    try {
+      const sourceUrl = safeSourceUrl(feed.url);
+      if (!sourceUrl || !sourceUrl.startsWith('https://')) throw new Error('Only public HTTPS feeds are supported');
+      const response = await fetch(sourceUrl, { redirect: 'manual', signal: AbortSignal.timeout(7000), headers: { accept: 'application/rss+xml, application/atom+xml, application/xml, text/xml' } });
+      if (!response.ok || (response.status >= 300 && response.status < 400)) throw new Error('Feed request rejected');
+      const contentType = (response.headers.get('content-type') || '').toLowerCase();
+      if (!/xml|rss|atom/.test(contentType)) throw new Error('Feed did not return XML');
+      if (Number(response.headers.get('content-length') || 0) > 300000) throw new Error('Feed is too large');
+      const xml = await response.text();
+      if (xml.length > 300000) throw new Error('Feed is too large');
+      const entries = xml.match(/<(?:item|entry)\\b[^>]*>[\\s\\S]*?<\\/(?:item|entry)>/gi) || [];
+      for (const entry of entries.slice(0, 15)) {
+        const clean = (value) => value.replace(/<!\\[CDATA\\[([\\s\\S]*?)\\]\\]>/g, '$1').replace(/<[^>]+>/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').trim();
+        const titleMatch = entry.match(/<title\\b[^>]*>([\\s\\S]*?)<\\/title>/i);
+        const linkMatch = entry.match(/<link\\b[^>]*>([\\s\\S]*?)<\\/link>/i);
+        const atom = entry.match(/<link\\b[^>]*href=["']([^"']+)["']/i);
+        const descMatch = entry.match(/<(?:description|summary)\\b[^>]*>([\\s\\S]*?)<\\/(?:description|summary)>/i);
+        const title = titleMatch ? clean(titleMatch[1]).slice(0, 200) : '';
+        const link = atom ? atom[1] : (linkMatch ? clean(linkMatch[1]) : '');
+        const target = safeSourceUrl(link);
+        const description = descMatch ? clean(descMatch[1]) : '';
+        if (!title || !target || !target.startsWith('https://')) continue;
+        const exists = await env.DB.prepare('SELECT id FROM opportunities WHERE source_id = ? AND target_url = ? LIMIT 1').bind(feed.id, target).first();
+        if (exists) continue;
+        await env.DB.prepare("INSERT INTO opportunities (id, source_id, title, description, target_url, category, legitimacy_status, score, evidence_json) VALUES (?, ?, ?, ?, ?, 'rss_discovery', 'pending_review', 0, ?)").bind(id(), feed.id, title, description.slice(0, 2000), target, JSON.stringify([{ feed: feed.url, discovered_at: new Date().toISOString() }])).run();
+        summary.candidates_added++;
+      }
+      await env.DB.prepare("UPDATE sources SET status = 'registered', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?").bind(feed.id).run();
+      await audit(env, 'source.fetch_succeeded', 'RSS feed checked; candidates require manual review', 'info', { sourceId: feed.id });
+    } catch (error) {
+      summary.feeds_failed++;
+      await env.DB.prepare("UPDATE sources SET status = 'error', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?").bind(feed.id).run();
+      await audit(env, 'source.fetch_failed', 'RSS feed check failed', 'warning', { sourceId: feed.id, reason: String(error).slice(0, 160) });
+    }
+  }
+  return summary;
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -338,41 +389,6 @@ export default {
   },
   async scheduled(controller, env, ctx) {
     if (!env.DB) return;
-    ctx.waitUntil((async () => {
-      const { results: feeds } = await env.DB.prepare("SELECT id, url FROM sources WHERE source_type = 'rss' AND status = 'registered' LIMIT 20").all();
-      for (const feed of feeds || []) {
-        try {
-          const sourceUrl = safeSourceUrl(feed.url);
-          if (!sourceUrl || !sourceUrl.startsWith('https://')) throw new Error('Only public HTTPS feeds are supported');
-          const response = await fetch(sourceUrl, { redirect: 'manual', signal: AbortSignal.timeout(7000), headers: { accept: 'application/rss+xml, application/atom+xml, application/xml, text/xml' } });
-          if (!response.ok || (response.status >= 300 && response.status < 400)) throw new Error('Feed request rejected');
-          const contentType = (response.headers.get('content-type') || '').toLowerCase();
-          if (!/xml|rss|atom/.test(contentType)) throw new Error('Feed did not return XML');
-          if (Number(response.headers.get('content-length') || 0) > 300000) throw new Error('Feed is too large');
-          const xml = await response.text();
-          if (xml.length > 300000) throw new Error('Feed is too large');
-          const entries = xml.match(/<(?:item|entry)\b[^>]*>[\s\S]*?<\/(?:item|entry)>/gi) || [];
-          for (const entry of entries.slice(0, 15)) {
-            const clean = (value) => value.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1').replace(/<[^>]+>/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').trim();
-            const titleMatch = entry.match(/<title\b[^>]*>([\s\S]*?)<\/title>/i);
-            const linkMatch = entry.match(/<link\b[^>]*>([\s\S]*?)<\/link>/i);
-            const atom = entry.match(/<link\b[^>]*href=["']([^"']+)["']/i);
-            const descMatch = entry.match(/<(?:description|summary)\b[^>]*>([\s\S]*?)<\/(?:description|summary)>/i);
-            const title = titleMatch ? clean(titleMatch[1]).slice(0, 200) : '';
-            const link = atom ? atom[1] : (linkMatch ? clean(linkMatch[1]) : '');
-            const target = safeSourceUrl(link);
-            const description = descMatch ? clean(descMatch[1]) : '';
-            if (!title || !target || !target.startsWith('https://')) continue;
-            const exists = await env.DB.prepare('SELECT id FROM opportunities WHERE source_id = ? AND target_url = ? LIMIT 1').bind(feed.id, target).first();
-            if (exists) continue;
-            await env.DB.prepare("INSERT INTO opportunities (id, source_id, title, description, target_url, category, legitimacy_status, score, evidence_json) VALUES (?, ?, ?, ?, ?, 'rss_discovery', 'pending_review', 0, ?)").bind(id(), feed.id, title, description.slice(0, 2000), target, JSON.stringify([{ feed: feed.url, discovered_at: new Date().toISOString() }])).run();
-          }
-          await audit(env, 'source.fetch_succeeded', 'RSS feed checked; candidates require manual review', 'info', { sourceId: feed.id });
-        } catch (error) {
-          await env.DB.prepare("UPDATE sources SET status = 'error', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?").bind(feed.id).run();
-          await audit(env, 'source.fetch_failed', 'RSS feed check failed', 'warning', { sourceId: feed.id, reason: String(error).slice(0, 160) });
-        }
-      }
-    })());
-  },
+    ctx.waitUntil(runRssDiscovery(env));
+  }
 };
