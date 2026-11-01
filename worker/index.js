@@ -340,13 +340,13 @@ async function runRssDiscovery(env) {
       if (Number(response.headers.get('content-length') || 0) > 300000) throw new Error('Feed is too large');
       const xml = await response.text();
       if (xml.length > 300000) throw new Error('Feed is too large');
-      const entries = xml.match(/<(?:item|entry)\\b[^>]*>[\\s\\S]*?<\\/(?:item|entry)>/gi) || [];
+      const entries = xml.match(/<(?:item|entry)\b[^>]*>[\s\S]*?<\/(?:item|entry)>/gi) || [];
       for (const entry of entries.slice(0, 15)) {
-        const clean = (value) => value.replace(/<!\\[CDATA\\[([\\s\\S]*?)\\]\\]>/g, '$1').replace(/<[^>]+>/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').trim();
-        const titleMatch = entry.match(/<title\\b[^>]*>([\\s\\S]*?)<\\/title>/i);
-        const linkMatch = entry.match(/<link\\b[^>]*>([\\s\\S]*?)<\\/link>/i);
-        const atom = entry.match(/<link\\b[^>]*href=["']([^"']+)["']/i);
-        const descMatch = entry.match(/<(?:description|summary)\\b[^>]*>([\\s\\S]*?)<\\/(?:description|summary)>/i);
+        const clean = (value) => value.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1').replace(/<[^>]+>/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').trim();
+        const titleMatch = entry.match(/<title\b[^>]*>([\s\S]*?)<\/title>/i);
+        const linkMatch = entry.match(/<link\b[^>]*>([\s\S]*?)<\/link>/i);
+        const atom = entry.match(/<link\b[^>]*href=["']([^"']+)["']/i);
+        const descMatch = entry.match(/<(?:description|summary)\b[^>]*>([\s\S]*?)<\/(?:description|summary)>/i);
         const title = titleMatch ? clean(titleMatch[1]).slice(0, 200) : '';
         const link = atom ? atom[1] : (linkMatch ? clean(linkMatch[1]) : '');
         const target = safeSourceUrl(link);
