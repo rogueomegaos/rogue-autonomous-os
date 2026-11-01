@@ -39,6 +39,38 @@ function safeSourceUrl(value) {
   return url.href;
 }
 
+
+async function stripeSignatureValid(raw, header, secret) {
+  if (!secret || secret.length < 32 || !header) return false;
+  const parts = Object.fromEntries(header.split(',').map(part => {
+    const i = part.indexOf('=');
+    return i > 0 ? [part.slice(0, i), part.slice(i + 1)] : ['', ''];
+  }).filter(([k]) => k));
+  const timestamp = Number(parts.t);
+  if (!Number.isSafeInteger(timestamp) || Math.abs(Date.now() / 1000 - timestamp) > 300 || !parts.v1) return false;
+  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const digest = new Uint8Array(await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(parts.t + '.' + raw)));
+  const expected = Array.from(digest, byte => byte.toString(16).padStart(2, '0')).join('');
+  return parts.v1.split(',').some(sig => {
+    if (!/^[0-9a-f]{64}$/i.test(sig)) return false;
+    let mismatch = 0;
+    for (let i = 0; i < expected.length; i++) mismatch |= expected.charCodeAt(i) ^ sig.toLowerCase().charCodeAt(i);
+    return mismatch === 0;
+  });
+}
+
+async function stripeRequest(env, path, params) {
+  if (!env.STRIPE_SECRET_KEY || !env.STRIPE_SECRET_KEY.startsWith('sk_')) throw new Error('stripe_not_configured');
+  const response = await fetch('https://api.stripe.com/v1/' + path, {
+    method: params ? 'POST' : 'GET',
+    headers: { authorization: 'Bearer ' + env.STRIPE_SECRET_KEY, ...(params ? { 'content-type': 'application/x-www-form-urlencoded' } : {}) },
+    body: params ? new URLSearchParams(params).toString() : undefined,
+  });
+  const data = await response.json();
+  if (!response.ok) throw new Error('stripe_api_error_' + response.status);
+  return data;
+}
+
 async function readJson(request) {
   const length = Number(request.headers.get('content-length') || 0);
   if (length > MAX_BODY) throw new Error('Request body too large');
@@ -147,50 +179,61 @@ async function api(request, env, url) {
     return new Response(object.body, { headers });
   }
 
-  // Provider-neutral webhook contract. Provider-specific signature verification still must be mapped before live use.
-  if (url.pathname === '/api/webhooks/payment' && request.method === 'POST') {
-    if (!env.PAYMENT_WEBHOOK_SECRET || env.PAYMENT_WEBHOOK_SECRET.length < 32) return json({ error: 'payment_webhook_not_configured' }, 503);
+  // Stripe's official signature header is verified against the untouched request body.
+  if (url.pathname === '/api/webhooks/stripe' && request.method === 'POST') {
+    if (!env.STRIPE_WEBHOOK_SECRET || env.STRIPE_WEBHOOK_SECRET.length < 32) return json({ error: 'stripe_webhook_not_configured' }, 503);
     const raw = await request.text();
     if (raw.length > MAX_BODY) return json({ error: 'request_body_too_large' }, 413);
-    const signature = (request.headers.get('x-rogue-signature') || '').replace(/^sha256=/, '').toLowerCase();
-    const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(env.PAYMENT_WEBHOOK_SECRET), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
-    const signed = new Uint8Array(await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(raw)));
-    const expected = Array.from(signed, byte => byte.toString(16).padStart(2, '0')).join('');
-    if (signature.length !== expected.length) return json({ error: 'invalid_signature' }, 401);
-    let mismatch = 0;
-    for (let i = 0; i < expected.length; i++) mismatch |= expected.charCodeAt(i) ^ signature.charCodeAt(i);
-    if (mismatch) return json({ error: 'invalid_signature' }, 401);
-    let body;
-    try { body = JSON.parse(raw); } catch { return json({ error: 'invalid_json' }, 400); }
-    const eventId = String(body.event_id || '');
-    const orderId = String(body.order_id || '');
-    const provider = String(body.provider || '').slice(0, 60);
-    const reference = String(body.provider_reference || '').slice(0, 180);
-    const status = String(body.status || '');
-    if (!eventId || eventId.length > 180 || !/^[0-9a-f-]{36}$/i.test(orderId) || !provider || !reference || !['paid','failed','cancelled','refunded'].includes(status)) return json({ error: 'invalid_payment_event' }, 400);
+    if (!await stripeSignatureValid(raw, request.headers.get('stripe-signature') || '', env.STRIPE_WEBHOOK_SECRET)) {
+      await audit(env, 'payment.webhook_rejected', 'Stripe webhook signature rejected', 'warning');
+      return json({ error: 'invalid_signature' }, 401);
+    }
+    let event;
+    try { event = JSON.parse(raw); } catch { return json({ error: 'invalid_json' }, 400); }
+    const eventId = String(event.id || '');
+    const type = String(event.type || '');
+    if (!eventId || eventId.length > 180) return json({ error: 'invalid_event' }, 400);
     const seen = await env.DB.prepare('SELECT event_id FROM payment_events WHERE event_id = ?').bind(eventId).first();
     if (seen) return json({ ok: true, duplicate: true });
+    const session = event.data && event.data.object;
+    if (!session || !['checkout.session.completed', 'checkout.session.async_payment_succeeded'].includes(type)) {
+      // Record unrelated verified Stripe events to make retries idempotent.
+      if (session) await env.DB.prepare('INSERT INTO payment_events (event_id, order_id, provider, provider_reference, event_status, payload_json) VALUES (?, ?, ?, ?, ?, ?)')
+        .bind(eventId, String(session.metadata?.order_id || ''), 'stripe', String(session.id || ''), type, JSON.stringify({ type }).slice(0, 3000)).run();
+      return json({ ok: true, ignored: true });
+    }
+    const orderId = String(session.metadata?.order_id || session.client_reference_id || '');
+    if (!/^[0-9a-f-]{36}$/i.test(orderId)) return json({ error: 'order_metadata_missing' }, 400);
+    if (session.mode !== 'payment') return json({ error: 'unsupported_checkout_mode' }, 400);
     const order = await env.DB.prepare('SELECT id, total_minor, currency, status FROM orders WHERE id = ?').bind(orderId).first();
     if (!order) return json({ error: 'order_not_found' }, 404);
-    if (status === 'paid') {
-      if (Number(body.amount_minor) !== order.total_minor || String(body.currency || '').toUpperCase() !== order.currency) return json({ error: 'payment_amount_mismatch' }, 409);
-      if (order.status !== 'pending' && order.status !== 'paid') return json({ error: 'order_not_payable' }, 409);
-      await env.DB.prepare("UPDATE orders SET status = 'paid', payment_provider = ?, provider_reference = ?, paid_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ? AND status = 'pending'").bind(provider, reference, orderId).run();
-    } else if (order.status === 'pending') {
-      await env.DB.prepare('UPDATE orders SET status = ? WHERE id = ? AND status = ?').bind(status, orderId, 'pending').run();
+    const paid = session.payment_status === 'paid';
+    if (paid) {
+      if (Number(session.amount_total) !== order.total_minor || String(session.currency || '').toUpperCase() !== order.currency) return json({ error: 'payment_amount_mismatch' }, 409);
+      if (order.status === 'pending') {
+        await env.DB.prepare("UPDATE orders SET status = 'paid', payment_provider = 'stripe', provider_reference = ?, paid_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ? AND status = 'pending'")
+          .bind(String(session.payment_intent || session.id), orderId).run();
+      } else if (order.status !== 'paid') return json({ error: 'order_not_payable' }, 409);
+    } else if (type === 'checkout.session.completed') {
+      // Delayed payment methods may complete Checkout before the funds settle.
+      await env.DB.prepare('INSERT INTO payment_events (event_id, order_id, provider, provider_reference, event_status, payload_json) VALUES (?, ?, ?, ?, ?, ?)')
+        .bind(eventId, orderId, 'stripe', String(session.id || ''), 'payment_pending', JSON.stringify({ type, payment_status: session.payment_status }).slice(0, 3000)).run();
+      return json({ ok: true, payment_pending: true });
     }
-    await env.DB.prepare('INSERT INTO payment_events (event_id, order_id, provider, provider_reference, event_status, payload_json) VALUES (?, ?, ?, ?, ?, ?)').bind(eventId, orderId, provider, reference, status, JSON.stringify({ eventId, orderId, status, amount_minor: body.amount_minor, currency: body.currency }).slice(0, 3000)).run();
-    await audit(env, 'payment.webhook_processed', 'Signed payment event processed', 'info', { orderId, provider, status, eventId });
-    return json({ ok: true });
+    await env.DB.prepare('INSERT INTO payment_events (event_id, order_id, provider, provider_reference, event_status, payload_json) VALUES (?, ?, ?, ?, ?, ?)')
+      .bind(eventId, orderId, 'stripe', String(session.id || ''), type, JSON.stringify({ type, payment_status: session.payment_status, amount_total: session.amount_total, currency: session.currency }).slice(0, 3000)).run();
+    await audit(env, 'payment.stripe_verified', 'Verified Stripe payment event processed', 'info', { orderId, eventId, type });
+    return json({ ok: true, paid });
   }
 
-  // Server-priced order intent. Payment is not considered complete until a signed provider webhook is integrated.
+  // Server prices the order, then creates a Stripe-hosted Checkout Session. Never mark paid here.
   if (url.pathname === '/api/checkout' && request.method === 'POST') {
     let body;
     try { body = await readJson(request); } catch { return json({ error: 'invalid_json_or_body_too_large' }, 400); }
+    if (!env.STRIPE_SECRET_KEY) return json({ error: 'stripe_not_configured' }, 503);
     const email = String(body.email || '').trim().toLowerCase();
     const items = Array.isArray(body.items) ? body.items : [];
-    if (email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return json({ error: 'invalid_email' }, 400);
+    if (email.length > 254 || !/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email)) return json({ error: 'invalid_email' }, 400);
     if (!items.length || items.length > 20) return json({ error: 'invalid_items' }, 400);
     const quantities = new Map();
     for (const item of items) {
@@ -202,26 +245,64 @@ async function api(request, env, url) {
     let total = 0;
     const pricedItems = [];
     for (const [productId, quantity] of quantities) {
-      const product = await env.DB.prepare("SELECT id, price_minor, currency FROM products WHERE id = ? AND status = 'published'").bind(productId).first();
-      if (!product) return json({ error: 'product_unavailable' }, 400);
-      if (product.currency !== 'MYR' || !Number.isSafeInteger(product.price_minor) || product.price_minor < 0) return json({ error: 'unsupported_price' }, 409);
+      const product = await env.DB.prepare("SELECT id, title, description, price_minor, currency FROM products WHERE id = ? AND status = 'published'").bind(productId).first();
+      if (!product || product.currency !== 'MYR' || !Number.isSafeInteger(product.price_minor) || product.price_minor <= 0) return json({ error: 'product_unavailable_or_unsupported_price' }, 400);
       total += product.price_minor * quantity;
       if (!Number.isSafeInteger(total)) return json({ error: 'order_total_too_large' }, 400);
       pricedItems.push({ product, quantity });
     }
     const orderId = id();
-    await env.DB.prepare("INSERT INTO orders (id, customer_email, currency, total_minor, status, payment_provider) VALUES (?, ?, 'MYR', ?, 'pending', 'unconfigured')").bind(orderId, email, total).run();
+    await env.DB.prepare("INSERT INTO orders (id, customer_email, currency, total_minor, status, payment_provider) VALUES (?, ?, 'MYR', ?, 'pending', 'stripe')").bind(orderId, email, total).run();
     for (const entry of pricedItems) {
       await env.DB.prepare('INSERT INTO order_items (order_id, product_id, quantity, unit_price_minor) VALUES (?, ?, ?, ?)').bind(orderId, entry.product.id, entry.quantity, entry.product.price_minor).run();
     }
+    try {
+      const origin = env.PUBLIC_APP_URL || new URL(request.url).origin;
+      if (!/^https:\\/\\//.test(origin)) throw new Error('invalid_public_app_url');
+      const params = {
+        mode: 'payment',
+        success_url: origin.replace(/\\/$/, '') + '/?checkout=success&session_id={CHECKOUT_SESSION_ID}',
+        cancel_url: origin.replace(/\\/$/, '') + '/?checkout=cancelled&order_id=' + orderId,
+        customer_email: email,
+        client_reference_id: orderId,
+        'metadata[order_id]': orderId,
+        'payment_intent_data[metadata][order_id]': orderId,
+      };
+      pricedItems.forEach((entry, index) => {
+        params['line_items[' + index + '][price_data][currency]'] = 'myr';
+        params['line_items[' + index + '][price_data][unit_amount]'] = String(entry.product.price_minor);
+        params['line_items[' + index + '][price_data][product_data][name]'] = entry.product.title.slice(0, 250);
+        params['line_items[' + index + '][price_data][product_data][description]'] = String(entry.product.description || 'Digital product').slice(0, 500);
+        params['line_items[' + index + '][quantity]'] = String(entry.quantity);
+      });
+      const session = await stripeRequest(env, 'checkout/sessions', params);
+      await audit(env, 'order.checkout_created', 'Stripe Checkout Session created; payment pending', 'info', { orderId, sessionId: session.id, totalMinor: total });
+      return json({ order_id: orderId, status: 'pending', currency: 'MYR', total_minor: total, checkout_url: session.url, checkout_session_id: session.id }, 201);
+    } catch (error) {
+      await audit(env, 'order.checkout_failed', 'Stripe Checkout Session creation failed', 'error', { orderId, reason: String(error).slice(0, 160) });
+      return json({ error: 'checkout_session_creation_failed' }, 502);
+    }
+  }
+
+  // After Stripe redirects back, independently retrieve the Session and require a paid order before minting a download grant.
+  if (url.pathname === '/api/orders/download-link' && request.method === 'GET') {
+    const sessionId = url.searchParams.get('session_id') || '';
+    if (!/^cs_(test_|live_)[A-Za-z0-9]+$/.test(sessionId)) return json({ error: 'invalid_checkout_session' }, 400);
+    let session;
+    try { session = await stripeRequest(env, 'checkout/sessions/' + encodeURIComponent(sessionId)); }
+    catch { return json({ error: 'checkout_session_unavailable' }, 502); }
+    const orderId = String(session.metadata?.order_id || session.client_reference_id || '');
+    if (!/^[0-9a-f-]{36}$/i.test(orderId) || session.payment_status !== 'paid') return json({ error: 'payment_not_verified' }, 403);
+    const order = await env.DB.prepare("SELECT id, status FROM orders WHERE id = ? AND payment_provider = 'stripe'").bind(orderId).first();
+    if (!order || order.status !== 'paid') return json({ error: 'order_not_paid' }, 403);
     const grantBytes = crypto.getRandomValues(new Uint8Array(32));
     const grant = Array.from(grantBytes, byte => byte.toString(16).padStart(2, '0')).join('');
     const grantDigest = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(grant)));
     const grantHash = Array.from(grantDigest, byte => byte.toString(16).padStart(2, '0')).join('');
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
     await env.DB.prepare('INSERT INTO order_download_grants (grant_hash, order_id, expires_at) VALUES (?, ?, ?)').bind(grantHash, orderId, expiresAt).run();
-    await audit(env, 'order.created', 'Pending order intent created; no payment received', 'info', { orderId, totalMinor: total });
-    return json({ order_id: orderId, status: 'pending', currency: 'MYR', total_minor: total, payment_status: 'not_started', download_grant: grant, download_expires_at: expiresAt, message: 'Payment gateway is not configured. This order is not paid. Download access remains blocked until verified payment.' }, 201);
+    await audit(env, 'order.download_grant_issued', 'Paid order download grant issued after Stripe Session verification', 'info', { orderId, sessionId });
+    return json({ ok: true, order_id: orderId, download_url: '/api/download?grant=' + grant, expires_at: expiresAt });
   }
 
   if (!authorized(request, env)) return json({ error: 'unauthorized', message: 'Open Settings and enter the Worker admin token for this browser session.' }, 401);
