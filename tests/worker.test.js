@@ -97,3 +97,41 @@ test('manual discovery endpoint requires admin auth and returns a safe empty sum
   assert.equal(allowed.status, 200);
   assert.deepEqual(await allowed.json(), { ok: true, feeds_checked: 0, candidates_added: 0, feeds_failed: 0 });
 });
+
+test('admin login exchanges the secret for a secure HttpOnly cookie without returning it', async () => {
+  const token = 'e'.repeat(64);
+  const response = await worker.fetch(new Request('https://example.test/api/admin/session', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ token }),
+  }), { ROGUE_ADMIN_TOKEN: token });
+  assert.equal(response.status, 200);
+  const cookie = response.headers.get('set-cookie') || '';
+  assert.match(cookie, /rogue_admin_session=/);
+  assert.match(cookie, /HttpOnly/);
+  assert.match(cookie, /Secure/);
+  assert.match(cookie, /SameSite=Strict/);
+  assert.match(cookie, /Max-Age=604800/);
+  assert.equal((await response.text()).includes(token), false);
+});
+
+test('admin session cookie authorizes protected API and logout clears it', async () => {
+  const token = 'f'.repeat(64);
+  const db = mockDb();
+  const response = await worker.fetch(new Request('https://example.test/api/sources', {
+    headers: { cookie: 'rogue_admin_session=' + token },
+  }), { DB: db, ROGUE_ADMIN_TOKEN: token });
+  assert.equal(response.status, 200);
+  const logout = await worker.fetch(new Request('https://example.test/api/admin/session', { method: 'DELETE' }), { ROGUE_ADMIN_TOKEN: token });
+  assert.equal(logout.status, 200);
+  assert.match(logout.headers.get('set-cookie') || '', /Max-Age=0/);
+});
+
+test('admin session exchange rejects an invalid token', async () => {
+  const response = await worker.fetch(new Request('https://example.test/api/admin/session', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ token: 'wrong-token' }),
+  }), { ROGUE_ADMIN_TOKEN: 'g'.repeat(64) });
+  assert.equal(response.status, 401);
+});
