@@ -277,9 +277,33 @@ function render() {
       result.textContent = 'Connection failed: ' + error.message + '. Check Worker deployment and the ROGUE_ADMIN_TOKEN secret.';
     }
   });
-  document.querySelector('#run-discovery')?.addEventListener('click', () => {
-    state.activeView = 'discovery';
-    render();
+  document.querySelector('#run-discovery')?.addEventListener('click', async (event) => {
+    const button = event.currentTarget;
+    if (!adminToken()) {
+      state.activeView = 'settings';
+      render();
+      document.querySelector('#connection-result')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      return;
+    }
+    button.disabled = true;
+    button.textContent = 'Scanning RSS sources…';
+    try {
+      const result = await apiRequest('/api/discovery/run', { method: 'POST', body: '{}' });
+      await refreshAll();
+      state.activeView = 'discovery';
+      render();
+      window.alert('Discovery complete. Feeds checked: ' + result.feeds_checked + ', new candidates: ' + result.candidates_added + ', failed feeds: ' + result.feeds_failed + '. All candidates remain pending review.');
+    } catch (error) {
+      if (error.message.includes('unauthorized')) {
+        sessionStorage.removeItem('rogue_admin_token');
+        state.activeView = 'settings';
+        render();
+      } else {
+        window.alert('Discovery failed: ' + error.message);
+        button.disabled = false;
+        button.textContent = '↗ Run discovery';
+      }
+    }
   });
 
   document.querySelector('#source-catalog-search')?.addEventListener('input', (event) => {
