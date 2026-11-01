@@ -47,11 +47,23 @@ async function readJson(request) {
   return JSON.parse(raw || '{}');
 }
 
+function cookieValue(request, name) {
+  const cookies = request.headers.get('cookie') || '';
+  for (const part of cookies.split(';')) {
+    const index = part.indexOf('=');
+    if (index < 0) continue;
+    if (part.slice(0, index).trim() === name) return part.slice(index + 1).trim();
+  }
+  return '';
+}
+
 function authorized(request, env) {
   const expected = env.ROGUE_ADMIN_TOKEN;
   if (!expected || expected.length < 32) return false;
   const provided = request.headers.get('authorization') || '';
-  return provided.startsWith('Bearer ') && provided.slice(7) === expected;
+  const bearer = provided.startsWith('Bearer ') && provided.slice(7) === expected;
+  const cookie = cookieValue(request, 'rogue_admin_session');
+  return bearer || (cookie.length === expected.length && cookie === expected);
 }
 
 async function audit(env, type, message, severity = 'info', metadata = {}) {
@@ -76,6 +88,35 @@ async function api(request, env, url) {
     return json({ ok: true, service: 'rogue-autonomous-os', version: '0.2.0', mode: 'foundation', database, autonomy: 'paused', counts, timestamp: new Date().toISOString() });
   }
   if (!url.pathname.startsWith('/api/')) return null;
+
+  // Exchange the admin secret for a short-lived HttpOnly cookie so it is not stored in JavaScript-accessible storage.
+  if (url.pathname === '/api/admin/session' && request.method === 'POST') {
+    let body;
+    try { body = await readJson(request); } catch { return json({ error: 'invalid_json_or_body_too_large' }, 400); }
+    const expected = env.ROGUE_ADMIN_TOKEN || '';
+    const provided = String(body.token || '');
+    if (expected.length < 32 || provided.length !== expected.length || provided !== expected) return json({ error: 'unauthorized', message: 'Invalid admin token.' }, 401);
+    return new Response(JSON.stringify({ ok: true, expires_in: 604800 }), {
+      status: 200,
+      headers: {
+        'content-type': 'application/json; charset=utf-8',
+        'cache-control': 'no-store',
+        'set-cookie': 'rogue_admin_session=' + expected + '; HttpOnly; Secure; SameSite=Strict; Path=/api; Max-Age=604800',
+        'x-content-type-options': 'nosniff',
+        'referrer-policy': 'no-referrer',
+      },
+    });
+  }
+  if (url.pathname === '/api/admin/session' && request.method === 'DELETE') {
+    return new Response(JSON.stringify({ ok: true }), {
+      status: 200,
+      headers: {
+        'content-type': 'application/json; charset=utf-8',
+        'cache-control': 'no-store',
+        'set-cookie': 'rogue_admin_session=; HttpOnly; Secure; SameSite=Strict; Path=/api; Max-Age=0',
+      },
+    });
+  }
   if (!env.DB) return json({ error: 'database_unconfigured' }, 503);
 
   // Public catalog exposes published metadata only, never private asset keys.
