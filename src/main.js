@@ -8,6 +8,7 @@ const state = {
   creativeJobs: [],
   auditEvents: [],
   health: 'Checking',
+  adminConnected: false,
 };
 
 async function refreshHealth() {
@@ -18,18 +19,17 @@ async function refreshHealth() {
   } catch { state.health = 'Offline'; }
 }
 
-const adminToken = () => sessionStorage.getItem('rogue_admin_token') || '';
+const adminToken = () => state.adminConnected;
 async function apiRequest(path, options = {}) {
   const headers = { 'content-type': 'application/json', ...(options.headers || {}) };
-  if (adminToken()) headers.authorization = 'Bearer ' + adminToken();
-  const response = await fetch(path, { ...options, headers });
+  const response = await fetch(path, { credentials: 'same-origin', ...options, headers });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(data.message || data.error || 'Request failed (' + response.status + ')');
   return data;
 }
 async function refreshSources() {
-  try { const data = await apiRequest('/api/sources'); state.sources = data.sources || []; }
-  catch (error) { if (error.message !== 'unauthorized') console.warn('Source API unavailable:', error.message); }
+  try { const data = await apiRequest('/api/sources'); state.sources = data.sources || []; state.adminConnected = true; }
+  catch (error) { if (error.message === 'unauthorized') state.adminConnected = false; else console.warn('Source API unavailable:', error.message); }
 }
 async function refreshCollection(path, responseKey, stateKey) {
   try { const data = await apiRequest(path); state[stateKey] = data[responseKey] || []; }
@@ -156,10 +156,11 @@ function renderSources() {
 
 function settingsView() {
   return `<section class="welcome-row"><div><div class="eyebrow">SYSTEM CONTROL</div><h1>Settings <span>.</span></h1><p class="subhead">Connect the dashboard to its protected Cloudflare Worker API.</p></div></section>
-    <section class="panel form-panel"><div class="panel-heading"><div><div class="eyebrow">ADMIN ACCESS</div><h2>API authentication</h2></div><span class="pill muted">SESSION ONLY</span></div>
-      <form id="token-form" class="source-form"><label class="full-field">Worker admin token<input name="token" type="password" autocomplete="off" placeholder="Paste the ROGUE_ADMIN_TOKEN secret" value="${escapeHtml(adminToken())}" required minlength="32" /></label>
-      <div class="form-actions"><p>The token is kept in this browser tab's session storage, not committed to GitHub. Create the same secret in Cloudflare Worker settings before using protected endpoints.</p><button class="primary-button" type="submit">Save & test connection <span>↗</span></button></div></form>
-      <div id="connection-result" class="muted-text" role="status"></div>
+    <section class="panel form-panel"><div class="panel-heading"><div><div class="eyebrow">ADMIN ACCESS</div><h2>API authentication</h2></div><span class="pill muted">${state.adminConnected ? 'CONNECTED' : 'SECURE LOGIN'}</span></div>
+      <form id="token-form" class="source-form"><label class="full-field">Worker admin token<input name="token" type="password" autocomplete="current-password" placeholder="Enter ROGUE_ADMIN_TOKEN once" required minlength="32" /></label>
+      <div class="form-actions"><p>After successful login, the server sets a Secure, HttpOnly cookie lasting 7 days. The secret is not saved in localStorage or sessionStorage. Re-login is required after expiry or when cookies are cleared.</p><button class="primary-button" type="submit">Sign in & test connection <span>↗</span></button></div></form>
+      <div class="form-actions"><p>Sign out removes this browser's admin session.</p><button class="secondary-button" type="button" id="admin-logout">Sign out</button></div>
+      <div id="connection-result" class="muted-text" role="status">${state.adminConnected ? 'An authenticated admin session is active in this browser.' : 'No authenticated admin session detected.'}</div>
     </section>
     <section class="panel"><div class="eyebrow">SAFETY DEFAULTS</div><h2>Autonomous actions remain paused</h2><p class="subhead">No background source fetching, payments or external actions run until those modules are implemented and tested.</p></section>`;
 }
@@ -265,17 +266,39 @@ function render() {
   });
   document.querySelector('#token-form')?.addEventListener('submit', async (event) => {
     event.preventDefault();
-    const token = String(new FormData(event.currentTarget).get('token') || '').trim();
-    sessionStorage.setItem('rogue_admin_token', token);
+    const form = event.currentTarget;
+    const token = String(new FormData(form).get('token') || '').trim();
     const result = document.querySelector('#connection-result');
-    result.textContent = 'Testing protected API…';
+    const button = form.querySelector('button[type="submit"]');
+    button.disabled = true;
+    result.textContent = 'Creating secure admin session…';
     try {
-      await apiRequest('/api/sources');
-      result.textContent = 'Connected. Source API authentication succeeded.';
+      const response = await fetch('/api/admin/session', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ token }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.message || data.error || 'Login failed (' + response.status + ')');
+      form.reset();
+      const check = await apiRequest('/api/sources');
+      state.sources = check.sources || [];
+      state.adminConnected = true;
+      result.textContent = 'Connected. Secure browser session active for up to 7 days.';
       await refreshAll();
+      render();
     } catch (error) {
-      result.textContent = 'Connection failed: ' + error.message + '. Check Worker deployment and the ROGUE_ADMIN_TOKEN secret.';
+      result.textContent = 'Connection failed: ' + error.message + '. Check the Worker secret and deployment.';
+    } finally {
+      button.disabled = false;
     }
+  });
+  document.querySelector('#admin-logout')?.addEventListener('click', async () => {
+    try { await fetch('/api/admin/session', { method: 'DELETE', credentials: 'same-origin' }); } catch {}
+    state.adminConnected = false;
+    state.sources = [];
+    render();
   });
   document.querySelector('#run-discovery')?.addEventListener('click', async (event) => {
     const button = event.currentTarget;
@@ -295,7 +318,7 @@ function render() {
       window.alert('Discovery complete. Feeds checked: ' + result.feeds_checked + ', new candidates: ' + result.candidates_added + ', failed feeds: ' + result.feeds_failed + '. All candidates remain pending review.');
     } catch (error) {
       if (error.message.includes('unauthorized')) {
-        sessionStorage.removeItem('rogue_admin_token');
+        state.adminConnected = false;
         state.activeView = 'settings';
         render();
       } else {
