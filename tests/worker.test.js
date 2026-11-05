@@ -69,10 +69,12 @@ test('CORS allows the deployed Worker origin but not arbitrary sites', async () 
     headers: { origin: 'https://rogue-autonomous-os.rogueomegaos.workers.dev' },
   }), {});
   assert.equal(allowed.headers.get('access-control-allow-origin'), 'https://rogue-autonomous-os.rogueomegaos.workers.dev');
+  assert.equal(allowed.headers.get('access-control-allow-credentials'), 'true');
   const denied = await worker.fetch(new Request('https://example.test/api/health', {
     headers: { origin: 'https://attacker.example' },
   }), {});
   assert.equal(denied.headers.get('access-control-allow-origin'), null);
+  assert.equal(denied.headers.get('access-control-allow-credentials'), null);
 });
 
 test('manual discovery endpoint requires admin auth and returns a safe empty summary', async () => {
