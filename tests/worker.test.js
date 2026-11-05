@@ -144,6 +144,7 @@ test('CORS allows the configured Freebuff app origin', async () => {
     headers: { origin: 'https://roguehub.freebuff.app' },
   }), {});
   assert.equal(response.headers.get('access-control-allow-origin'), 'https://roguehub.freebuff.app');
+  assert.equal(response.headers.get('access-control-allow-credentials'), 'true');
 });
 
 test('Stripe checkout fails closed until test-mode credentials are configured', async () => {
