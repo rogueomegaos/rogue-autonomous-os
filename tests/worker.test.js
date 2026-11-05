@@ -135,3 +135,31 @@ test('admin session exchange rejects an invalid token', async () => {
   }), { ROGUE_ADMIN_TOKEN: 'g'.repeat(64) });
   assert.equal(response.status, 401);
 });
+
+
+test('CORS allows the configured Freebuff app origin', async () => {
+  const response = await worker.fetch(new Request('https://example.test/api/health', {
+    headers: { origin: 'https://roguehub.freebuff.app' },
+  }), {});
+  assert.equal(response.headers.get('access-control-allow-origin'), 'https://roguehub.freebuff.app');
+});
+
+test('Stripe checkout fails closed until test-mode credentials are configured', async () => {
+  const response = await worker.fetch(new Request('https://example.test/api/checkout', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ email: 'buyer@example.com', items: [] }),
+  }), { DB: mockDb() });
+  assert.equal(response.status, 503);
+  assert.equal((await response.json()).error, 'stripe_not_configured');
+});
+
+test('Stripe webhook rejects a missing or forged signature', async () => {
+  const response = await worker.fetch(new Request('https://example.test/api/webhooks/stripe', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'stripe-signature': 't=1,v1=deadbeef' },
+    body: JSON.stringify({ id: 'evt_forged', type: 'checkout.session.completed', data: { object: {} } }),
+  }), { DB: mockDb(), STRIPE_WEBHOOK_SECRET: 's'.repeat(40) });
+  assert.equal(response.status, 401);
+  assert.equal((await response.json()).error, 'invalid_signature');
+});
