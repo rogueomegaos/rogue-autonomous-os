@@ -75,7 +75,7 @@ function escapeHtml(value = '') {
 function navItem(id, label) {
   return `<button class="nav-item ${state.activeView === id ? 'active' : ''}" data-view="${id}">
     <span class="nav-icon">${icons[id]}</span><span>${label}</span>
-    ${id === 'discovery' ? '<span class="nav-count">00</span>' : ''}
+    ${id === 'discovery' ? '<span class="nav-count">' + String(state.opportunities.length).padStart(2, '0') + '</span>' : ''}
   </button>`;
 }
 
@@ -107,14 +107,14 @@ function overview() {
     </section>
     <section class="content-grid">
       <article class="panel pipeline-panel">
-        <div class="panel-heading"><div><div class="eyebrow">AUTONOMOUS PIPELINE</div><h2>Discovery workflow</h2></div><span class="pill muted">READY</span></div>
+        <div class="panel-heading"><div><div class="eyebrow">AUTONOMOUS PIPELINE</div><h2>Discovery workflow</h2></div><span class="pill muted">PAUSED</span></div>
         <div class="pipeline">
           ${[['01','DISCOVER','Find sources and opportunities'],['02','EXTRACT','Collect structured signals'],['03','VERIFY','Check legitimacy and evidence'],['04','SCORE','Rank quality and fit'],['05','ROUTE','Send to the right engine'],['06','LEARN','Record outcomes and improve']].map(([n,t,d],i)=>`<div class="pipeline-step"><div class="step-number">${n}</div><div class="step-copy"><strong>${t}</strong><span>${d}</span></div><span class="step-state">${i===0?'●':'○'}</span></div>`).join('')}
         </div>
-        <div class="panel-footer"><span class="muted-text">Autonomy remains paused until sources are configured.</span><span class="tiny-brand">Ω CONTROL</span></div>
+        <div class="panel-footer"><span class="muted-text">Scheduled discovery is active; external execution and payment actions remain paused.</span><span class="tiny-brand">Ω CONTROL</span></div>
       </article>
       <article class="panel activity-panel">
-        <div class="panel-heading"><div><div class="eyebrow">LIVE OPERATIONS</div><h2>Activity stream</h2></div><span class="live-label"><i></i> LIVE</span></div>
+        <div class="panel-heading"><div><div class="eyebrow">RECENT OPERATIONS</div><h2>Activity stream</h2></div><span class="pill muted">RECENT</span></div>
         <div id="activity-list" class="activity-list">
           <div class="empty-state"><div class="empty-symbol">≋</div><strong>Quiet by design.</strong><p>System events will appear here as you connect sources and run workflows.</p></div>
         </div>
@@ -136,7 +136,7 @@ function sourcesView() {
         <label>Source type<select name="type"><option value="website">Public website</option><option value="rss">RSS feed</option><option value="api">API endpoint</option></select></label>
         <label class="full-field">URL<input name="url" type="url" placeholder="https://example.com/opportunities" required /></label>
         <label class="full-field">Notes <textarea name="notes" placeholder="What should this source be used for? (optional)" rows="3" maxlength="500"></textarea></label>
-        <div class="form-actions"><p>Only add sources you are authorized to access. The server rejects local/private IPs and embedded URL credentials. No source fetching runs automatically.</p><button class="primary-button" type="submit">Add source <span>＋</span></button></div>
+        <div class="form-actions"><p>Only register sources you are authorized to access. RSS and supported JSON APIs are checked on schedule; website URLs are registry-only unless an authorized connector is configured.</p><button class="primary-button" type="submit">Add source <span>＋</span></button></div>
       </form>
     </section>
 
@@ -172,7 +172,7 @@ function simpleView(id, title, subtitle, label, description) {
     '<section class="panel"><div class="panel-heading"><div><div class="eyebrow">REVIEW QUEUE</div><h2>Opportunities</h2></div><span class="pill">' + state.opportunities.length + ' TOTAL</span></div>' +
     (state.opportunities.length ? '<div class="table-wrap"><table><thead><tr><th>OPPORTUNITY</th><th>STATUS</th><th>SCORE</th><th>LINK</th><th>REVIEW</th></tr></thead><tbody>' + state.opportunities.map(o => '<tr><td><strong>' + escapeHtml(o.title) + '</strong><small>' + escapeHtml(o.category || 'unclassified') + '</small></td><td><span class="pill">' + escapeHtml(String(o.legitimacy_status).replace('_',' ').toUpperCase()) + '</span></td><td>' + Number(o.score || 0) + '/100</td><td><a href="' + escapeHtml(o.target_url) + '" target="_blank" rel="noopener noreferrer">Open ↗</a></td><td>' + (['pending_review','unverified'].includes(o.legitimacy_status) ? '<button class="text-button" data-review="' + escapeHtml(o.id) + '" data-status="verified">Verify</button> <button class="text-button" data-review="' + escapeHtml(o.id) + '" data-status="rejected">Reject</button>' : '—') + '</td></tr>').join('') + '</tbody></table></div>' : '<div class="empty-state compact"><strong>No candidates yet</strong><p>Add a candidate above. Automated crawling is not active.</p></div>') + '</section>';
   } else if (id === 'products') {
-    content = '<section class="panel form-panel"><div class="panel-heading"><div><div class="eyebrow">CATALOG</div><h2>Create product draft</h2></div><span class="pill muted">DRAFT ONLY</span></div><form id="product-form" class="source-form"><label class="full-field">Product title<input name="title" required maxlength="160" /></label><label>Price (MYR)<input name="price" type="number" min="0" step="0.01" value="0" required /></label><label>URL slug<input name="slug" maxlength="100" placeholder="Optional" /></label><label class="full-field">Description<textarea name="description" rows="3" maxlength="5000"></textarea></label><div class="form-actions"><p>Prices are stored in sen. Products remain drafts; checkout and downloads are not enabled.</p><button class="primary-button" type="submit">Save draft ＋</button></div></form></section>' +
+    content = '<section class="panel form-panel"><div class="panel-heading"><div><div class="eyebrow">CATALOG</div><h2>Create product draft</h2></div><span class="pill muted">DRAFT ONLY</span></div><form id="product-form" class="source-form"><label class="full-field">Product title<input name="title" required maxlength="160" /></label><label>Price (MYR)<input name="price" type="number" min="0" step="0.01" value="0" required /></label><label>URL slug<input name="slug" maxlength="100" placeholder="Optional" /></label><label class="full-field">Description<textarea name="description" rows="3" maxlength="5000"></textarea></label><div class="form-actions"><p>Prices are stored in sen. Products remain drafts until published; Stripe checkout requires test credentials and downloads require a private R2 asset.</p><button class="primary-button" type="submit">Save draft ＋</button></div></form></section>' +
     '<section class="panel"><div class="panel-heading"><div><div class="eyebrow">PRODUCT INVENTORY</div><h2>Catalog</h2></div><span class="pill">' + state.products.length + ' TOTAL</span></div>' +
     (state.products.length ? '<div class="table-wrap"><table><thead><tr><th>PRODUCT</th><th>PRICE</th><th>STATUS</th></tr></thead><tbody>' + state.products.map(p => '<tr><td><strong>' + escapeHtml(p.title) + '</strong><small>/' + escapeHtml(p.slug) + '</small></td><td>' + escapeHtml(p.currency) + ' ' + (Number(p.price_minor || 0)/100).toFixed(2) + '</td><td><span class="pill">' + escapeHtml(p.status.toUpperCase()) + '</span></td></tr>').join('') + '</tbody></table></div>' : '<div class="empty-state compact"><strong>No products yet</strong><p>Create a draft to start the catalog.</p></div>') + '</section>';
   } else if (id === 'creative') {
@@ -315,7 +315,7 @@ function render() {
       await refreshAll();
       state.activeView = 'discovery';
       render();
-      window.alert('Discovery complete. Feeds checked: ' + result.feeds_checked + ', new candidates: ' + result.candidates_added + ', failed feeds: ' + result.feeds_failed + '. All candidates remain pending review.');
+      window.alert('Discovery complete. RSS feeds checked: ' + result.feeds_checked + ' (failed: ' + result.feeds_failed + '); JSON APIs checked: ' + result.apis_checked + ' (failed: ' + result.apis_failed + '); new candidates: ' + result.candidates_added + '. All candidates remain pending review.');
     } catch (error) {
       if (error.message.includes('unauthorized')) {
         state.adminConnected = false;
