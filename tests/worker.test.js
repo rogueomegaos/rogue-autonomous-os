@@ -163,3 +163,43 @@ test('Stripe webhook rejects a missing or forged signature', async () => {
   assert.equal(response.status, 401);
   assert.equal((await response.json()).error, 'invalid_signature');
 });
+
+
+test('scheduled discovery ingests JSON API job records as pending review candidates', async () => {
+  const inserted = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    assert.equal(String(url), 'https://jobs.example/api/jobs');
+    return new Response(JSON.stringify({ data: [
+      { title: 'Remote QA contract', url: 'https://jobs.example/jobs/123', description: 'Paid testing contract' },
+    ] }), { status: 200, headers: { 'content-type': 'application/json' } });
+  };
+  const db = {
+    prepare(sql) {
+      let args = [];
+      return {
+        bind(...values) { args = values; return this; },
+        async all() {
+          if (sql.includes("source_type = 'api'")) return { results: [{ id: 'source-id', url: 'https://jobs.example/api/jobs' }] };
+          return { results: [] };
+        },
+        async first() { return null; },
+        async run() {
+          if (sql.includes('INSERT INTO opportunities')) inserted.push({ sql, args });
+          return { success: true, meta: { changes: 1 } };
+        },
+      };
+    },
+  };
+  let scheduled;
+  try {
+    await worker.scheduled({}, { DB: db }, { waitUntil(promise) { scheduled = promise; } });
+    await scheduled;
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+  assert.equal(inserted.length, 1);
+  assert.match(inserted[0].sql, /pending_review/);
+  assert.equal(inserted[0].args[2], 'Remote QA contract');
+  assert.equal(inserted[0].args[4], 'https://jobs.example/jobs/123');
+});
