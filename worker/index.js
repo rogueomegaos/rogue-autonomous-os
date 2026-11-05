@@ -133,7 +133,7 @@ async function api(request, env, url) {
       headers: {
         'content-type': 'application/json; charset=utf-8',
         'cache-control': 'no-store',
-        'set-cookie': 'rogue_admin_session=' + expected + '; HttpOnly; Secure; SameSite=Strict; Path=/api; Max-Age=604800',
+        'set-cookie': 'rogue_admin_session=' + expected + '; HttpOnly; Secure; SameSite=None; Path=/api; Max-Age=604800',
         'x-content-type-options': 'nosniff',
         'referrer-policy': 'no-referrer',
       },
@@ -448,7 +448,10 @@ async function api(request, env, url) {
 function corsHeaders(request) {
   const origin = request.headers.get('origin') || '';
   const headers = { 'access-control-allow-methods': 'GET,POST,DELETE,OPTIONS', 'access-control-allow-headers': 'Authorization,Content-Type', 'vary': 'Origin' };
-  if (origin && /^https:\/\/(rogue-autonomous-os\.rogueomegaos\.workers\.dev|roguehub\.freebuff\.app|rogueomegaos\.github\.io|[a-z0-9-]+\.rogue-autonomous-os\.pages\.dev)$/.test(origin)) headers['access-control-allow-origin'] = origin;
+  if (origin && /^https:\/\/(rogue-autonomous-os\.rogueomegaos\.workers\.dev|roguehub\.freebuff\.app|rogueomegaos\.github\.io|[a-z0-9-]+\.rogue-autonomous-os\.pages\.dev)$/.test(origin)) {
+    headers['access-control-allow-origin'] = origin;
+    headers['access-control-allow-credentials'] = 'true';
+  }
   return headers;
 }
 
