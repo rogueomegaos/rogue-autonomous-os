@@ -24,24 +24,25 @@ The Worker `ROGUE_ADMIN_TOKEN` secret binding is present, and the dashboard Sett
 
 Additional configuration before commerce can go live:
 
-- `PAYMENT_WEBHOOK_SECRET`: at least 32 random characters. The generic webhook expects an HMAC-SHA256 signature in `X-Rogue-Signature: sha256=<hex>` over the exact raw JSON request body. A provider-specific adapter is still required before connecting a real payment provider.
-- Bind a private Cloudflare R2 bucket to the Worker as `PRODUCT_FILES`. Store digital assets there and set each product's `asset_key` through a controlled admin workflow before enabling customer downloads.
-- Add GitHub repository Actions secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` to enable the guarded auto-deploy job. The latest inspected workflow run (30 Oct 2026) passed tests/build but **failed during the remote D1 migration with Cloudflare error 7403** (account invalid or not authorized). The Actions secrets are populated, but the account ID and token/account permissions still need to be verified. A green validation job is not proof that the latest code is deployed.
-- Ensure the D1 migrations are applied before enabling the new payment event and download-grant routes.
+- Stripe checkout requires Worker secrets `STRIPE_SECRET_KEY` (use `sk_test_...` first), `STRIPE_WEBHOOK_SECRET` (Stripe test endpoint signing secret), and `PUBLIC_APP_URL=https://roguehub.freebuff.app`. These credentials are not present in the inspected Worker bindings yet; checkout/webhook must fail closed until configured.
+- A private R2 bucket `rogue-product-files` is now present and bound as `PRODUCT_FILES`. File upload, product asset mapping, and paid/unpaid download denial still require an end-to-end test.
+- GitHub Actions uses repository secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`. Verify the latest run's deploy job; the historical 30 Oct 2026 run failed during D1 migration with Cloudflare error 7403. A green validation job is not proof that the latest code is deployed.
+- D1 currently contains the payment-event and download-grant tables. The live Worker version must be checked after each deployment, and migrations must remain additive and reproducible.
 
 ## API status
 
 - `GET /api/health`: public runtime/database health.
 - `GET /api/catalog`: public published product metadata only.
-- `POST /api/checkout`: creates a pending order using server-side prices. It does not collect payment or mark an order paid.
-- `POST /api/webhooks/payment`: accepts normalized payment events only when a valid HMAC secret is configured; amount and currency are checked against the stored order and event IDs are idempotent.
-- `GET /api/download?grant=<grant>`: requires a valid order grant, a paid order and the private `PRODUCT_FILES` binding. A product asset must be attached first.
+- `POST /api/checkout`: creates a pending order from server-side MYR prices and requests a Stripe-hosted Checkout Session. It returns 503 until Stripe test credentials are configured.
+- `POST /api/webhooks/stripe`: validates Stripe's signature over the exact raw body, rejects stale signatures, checks order amount/currency, and deduplicates event IDs.
+- `GET /api/orders/download-link?session_id=...`: retrieves the Checkout Session from Stripe and requires a paid session plus a paid D1 order before issuing an expiring download grant.
+- `GET /api/download?grant=<grant>`: requires a valid, unexpired grant, a paid order, a private `PRODUCT_FILES` binding, and a product asset attached in D1.
 - `POST /api/products/<uuid>/publish`: protected admin endpoint to publish a draft product.
 - Protected `/api/sources`, `/api/opportunities`, `/api/products`, `/api/creative-jobs`, and `/api/audit` endpoints require the admin token.
 
 ## Scheduled opportunity intake
 
-The Worker checks registered RSS sources every six hours. It limits source count, response size and request time, blocks redirects, and records candidates as `pending_review`; it does not automatically mark opportunities legitimate or perform paid/external actions. Only public HTTPS feed URLs should be registered. The scheduled handler must be deployed before cron runs can be considered active.
+The Worker checks registered RSS sources every six hours. It limits source count, response size and request time, blocks redirects, and records candidates as `pending_review`; it does not automatically mark opportunities legitimate or perform paid/external actions. Only public HTTPS feed URLs should be registered. The Cloudflare Worker schedule is configured, but the latest Worker deployment and a successful scheduled execution still need verification. Discovery currently supports RSS feeds only; registering Upwork or Freelancer website URLs does not make their pages machine-readable. Use official APIs or authorized feeds where available.
 
 ## Local development
 
