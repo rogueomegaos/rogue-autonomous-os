@@ -490,6 +490,49 @@ async function runRssDiscovery(env) {
   return summary;
 }
 
+async function runJsonApiDiscovery(env) {
+  if (!env.DB) throw new Error('database_unconfigured');
+  const { results: sources } = await env.DB.prepare("SELECT id, url FROM sources WHERE source_type = 'api' AND status IN ('registered','error') LIMIT 20").all();
+  const summary = { apis_checked: 0, candidates_added: 0, apis_failed: 0 };
+  for (const source of sources || []) {
+    summary.apis_checked++;
+    try {
+      const sourceUrl = safeSourceUrl(source.url);
+      if (!sourceUrl || !sourceUrl.startsWith('https://')) throw new Error('Only public HTTPS APIs are supported');
+      const response = await fetch(sourceUrl, { redirect: 'manual', signal: AbortSignal.timeout(7000), headers: { accept: 'application/json' } });
+      if (!response.ok || (response.status >= 300 && response.status < 400)) throw new Error('API request rejected');
+      const contentType = (response.headers.get('content-type') || '').toLowerCase();
+      if (!contentType.includes('json')) throw new Error('API did not return JSON');
+      if (Number(response.headers.get('content-length') || 0) > 300000) throw new Error('API response is too large');
+      const raw = await response.text();
+      if (raw.length > 300000) throw new Error('API response is too large');
+      const payload = JSON.parse(raw);
+      const entries = Array.isArray(payload) ? payload
+        : [payload?.data, payload?.jobs, payload?.items, payload?.results].find(Array.isArray) || [];
+      for (const entry of entries.slice(0, 15)) {
+        if (!entry || typeof entry !== 'object') continue;
+        const title = String(entry.title || entry.name || entry.position || '').trim().slice(0, 200);
+        const linkValue = entry.url || entry.job_url || entry.link || entry.html_url || entry.absolute_url || '';
+        let target = null;
+        try { target = safeSourceUrl(new URL(String(linkValue), sourceUrl).href); } catch {}
+        const description = String(entry.description || entry.summary || entry.body || entry.snippet || '').replace(/<[^>]+>/g, ' ').trim().slice(0, 2000);
+        if (!title || !target || !target.startsWith('https://')) continue;
+        const exists = await env.DB.prepare('SELECT id FROM opportunities WHERE source_id = ? AND target_url = ? LIMIT 1').bind(source.id, target).first();
+        if (exists) continue;
+        await env.DB.prepare("INSERT INTO opportunities (id, source_id, title, description, target_url, category, legitimacy_status, score, evidence_json) VALUES (?, ?, ?, ?, ?, 'api_discovery', 'pending_review', 0, ?)").bind(id(), source.id, title, description, target, JSON.stringify([{ api: source.url, discovered_at: new Date().toISOString() }])).run();
+        summary.candidates_added++;
+      }
+      await env.DB.prepare("UPDATE sources SET status = 'registered', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?").bind(source.id).run();
+      await audit(env, 'source.api_fetch_succeeded', 'JSON API checked; candidates require review', 'info', { sourceId: source.id });
+    } catch (error) {
+      summary.apis_failed++;
+      await env.DB.prepare("UPDATE sources SET status = 'error', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?").bind(source.id).run();
+      await audit(env, 'source.api_fetch_failed', 'JSON API check failed', 'warning', { sourceId: source.id, reason: String(error).slice(0, 160) });
+    }
+  }
+  return summary;
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -511,6 +554,6 @@ export default {
   },
   async scheduled(controller, env, ctx) {
     if (!env.DB) return;
-    ctx.waitUntil(runRssDiscovery(env));
+    ctx.waitUntil(Promise.all([runRssDiscovery(env), runJsonApiDiscovery(env)]));
   }
 };
