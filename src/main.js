@@ -1,5 +1,11 @@
 import './style.css';
 
+const API_BASE = window.location.origin === 'https://roguehub.freebuff.app'
+  ? 'https://rogue-autonomous-os.rogueomegaos.workers.dev'
+  : '';
+
+const apiUrl = (path) => API_BASE + path;
+
 const state = {
   activeView: 'overview',
   sources: [],
@@ -13,7 +19,7 @@ const state = {
 
 async function refreshHealth() {
   try {
-    const response = await fetch('/api/health', { cache: 'no-store' });
+    const response = await fetch(apiUrl('/api/health'), { cache: 'no-store', credentials: API_BASE ? 'include' : 'same-origin' });
     const data = await response.json();
     state.health = data.ok && data.database === 'connected' ? 'Online' : 'Degraded';
   } catch { state.health = 'Offline'; }
@@ -22,7 +28,7 @@ async function refreshHealth() {
 const adminToken = () => state.adminConnected;
 async function apiRequest(path, options = {}) {
   const headers = { 'content-type': 'application/json', ...(options.headers || {}) };
-  const response = await fetch(path, { credentials: 'same-origin', ...options, headers });
+  const response = await fetch(apiUrl(path), { credentials: API_BASE ? 'include' : 'same-origin', ...options, headers });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(data.message || data.error || 'Request failed (' + response.status + ')');
   return data;
@@ -162,7 +168,7 @@ function settingsView() {
       <div class="form-actions"><p>Sign out removes this browser's admin session.</p><button class="secondary-button" type="button" id="admin-logout">Sign out</button></div>
       <div id="connection-result" class="muted-text" role="status">${state.adminConnected ? 'An authenticated admin session is active in this browser.' : 'No authenticated admin session detected.'}</div>
     </section>
-    <section class="panel"><div class="eyebrow">SAFETY DEFAULTS</div><h2>Autonomous actions remain paused</h2><p class="subhead">No background source fetching, payments or external actions run until those modules are implemented and tested.</p></section>`;
+    <section class="panel"><div class="eyebrow">SAFETY DEFAULTS</div><h2>Autonomous actions remain paused</h2><p class="subhead">RSS and supported JSON API discovery run on schedule. Checkout and external execution remain disabled until credentials, safeguards and end-to-end tests pass.</p></section>`;
 }
 
 function simpleView(id, title, subtitle, label, description) {
@@ -340,7 +346,7 @@ function render() {
     form.elements.name.value = source.name;
     form.elements.type.value = source.type;
     form.elements.url.value = source.url;
-    form.elements.notes.value = source.description + ' | Free/public source; verify terms, rate limits, licensing and Malaysia eligibility. No automatic fetching is enabled.';
+    form.elements.notes.value = source.description + ' | Free/public source; verify terms, rate limits, licensing and Malaysia eligibility. Registered RSS and supported JSON APIs are checked on schedule; website URLs are registry-only unless an authorized connector is configured.';
     form.scrollIntoView({ behavior: 'smooth', block: 'center' });
     form.elements.name.focus({ preventScroll: true });
     const submit = form.querySelector('button[type="submit"]');
