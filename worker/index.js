@@ -520,6 +520,7 @@ async function runJsonApiDiscovery(env) {
         if (!entry || typeof entry !== 'object') continue;
         const title = String(entry.title || entry.name || entry.position || '').trim().slice(0, 200);
         const linkValue = entry.url || entry.job_url || entry.link || entry.html_url || entry.absolute_url || '';
+        if (!String(linkValue).trim()) continue;
         let target = null;
         try { target = safeSourceUrl(new URL(String(linkValue), sourceUrl).href); } catch {}
         const description = String(entry.description || entry.summary || entry.body || entry.snippet || '').replace(/<[^>]+>/g, ' ').trim().slice(0, 2000);
