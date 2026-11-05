@@ -95,7 +95,7 @@ test('manual discovery endpoint requires admin auth and returns a safe empty sum
     body: '{}',
   }), { DB: db, ROGUE_ADMIN_TOKEN: token });
   assert.equal(allowed.status, 200);
-  assert.deepEqual(await allowed.json(), { ok: true, feeds_checked: 0, candidates_added: 0, feeds_failed: 0 });
+  assert.deepEqual(await allowed.json(), { ok: true, feeds_checked: 0, feeds_failed: 0, apis_checked: 0, apis_failed: 0, candidates_added: 0 });
 });
 
 test('admin login exchanges the secret for a secure HttpOnly cookie without returning it', async () => {
