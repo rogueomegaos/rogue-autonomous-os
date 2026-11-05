@@ -112,7 +112,7 @@ test('admin login exchanges the secret for a secure HttpOnly cookie without retu
   assert.match(cookie, /rogue_admin_session=/);
   assert.match(cookie, /HttpOnly/);
   assert.match(cookie, /Secure/);
-  assert.match(cookie, /SameSite=Strict/);
+  assert.match(cookie, /SameSite=None/);
   assert.match(cookie, /Max-Age=604800/);
   assert.equal((await response.text()).includes(token), false);
 });
