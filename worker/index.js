@@ -308,8 +308,15 @@ async function api(request, env, url) {
   if (!authorized(request, env)) return json({ error: 'unauthorized', message: 'Open Settings and enter the Worker admin token for this browser session.' }, 401);
 
   if (url.pathname === '/api/discovery/run' && request.method === 'POST') {
-    const result = await runRssDiscovery(env);
-    await audit(env, 'discovery.manual_run', 'Manual RSS discovery completed', 'info', result);
+    const [rss, apiSources] = await Promise.all([runRssDiscovery(env), runJsonApiDiscovery(env)]);
+    const result = {
+      feeds_checked: rss.feeds_checked || 0,
+      feeds_failed: rss.feeds_failed || 0,
+      apis_checked: apiSources.apis_checked || 0,
+      apis_failed: apiSources.apis_failed || 0,
+      candidates_added: (rss.candidates_added || 0) + (apiSources.candidates_added || 0),
+    };
+    await audit(env, 'discovery.manual_run', 'Manual RSS and JSON API discovery completed', 'info', result);
     return json({ ok: true, ...result });
   }
 
