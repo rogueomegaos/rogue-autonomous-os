@@ -448,7 +448,7 @@ async function api(request, env, url) {
 function corsHeaders(request) {
   const origin = request.headers.get('origin') || '';
   const headers = { 'access-control-allow-methods': 'GET,POST,DELETE,OPTIONS', 'access-control-allow-headers': 'Authorization,Content-Type', 'vary': 'Origin' };
-  if (origin && /^https:\/\/(rogue-autonomous-os\.rogueomegaos\.workers\.dev|roguehub\.freebuff\.app|rogueomegaos\.github\.io|[a-z0-9-]+\.rogue-autonomous-os\.pages\.dev)$/.test(origin)) {
+  if (origin && /^https:\/\/(rogue-autonomous-os\.rogueomegaos\.workers\.dev|roguehub\.freebuff\.app|rogueomegaos\.github\.io)$/.test(origin)) {
     headers['access-control-allow-origin'] = origin;
     headers['access-control-allow-credentials'] = 'true';
   }
