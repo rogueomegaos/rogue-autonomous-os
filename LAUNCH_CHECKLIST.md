@@ -15,9 +15,11 @@ Last reviewed: 2026-10-31
 - [ ] Configure GitHub Actions repository secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`. The inspected deploy run on 2026-10-30 passed validation but skipped deployment because these were empty. CI now fails explicitly when they remain absent.
 - [ ] Verify the live Worker health route reports database connected after the additive D1 repair; ensure future Wrangler migration runs reconcile with the recorded migration ledger.
 - [ ] Enable R2 on the Cloudflare account (the API currently returns error `10042` saying R2 must be enabled in the dashboard), then create/bind a private R2 bucket as `PRODUCT_FILES`; upload one harmless test asset and verify unauthorized/unpaid grants cannot download it.
-- [ ] Choose and configure a real payment provider account. Implement its official signature verification adapter; the current generic HMAC webhook is not a Stripe, ToyyibPay, Billplz, or DuitNow integration.
-- [ ] Set a new `PAYMENT_WEBHOOK_SECRET` secret and test valid signature, invalid signature, duplicate event, amount/currency mismatch, and refund/failure states in sandbox.
-- [ ] Test checkout -> sandbox payment -> signed webhook -> paid order -> expiring download grant end-to-end.
+- [ ] Configure Cloudflare Worker secrets `STRIPE_SECRET_KEY` (test-mode `sk_test_...` for initial validation), `STRIPE_WEBHOOK_SECRET` (Stripe test endpoint signing secret), and `PUBLIC_APP_URL` (canonical HTTPS frontend URL). Never use a live key until the sandbox end-to-end test passes.
+- [ ] Register `POST /api/webhooks/stripe` in Stripe test mode and subscribe to `checkout.session.completed` and `checkout.session.async_payment_succeeded`; store the endpoint signing secret as `STRIPE_WEBHOOK_SECRET`.
+- [ ] Test valid Stripe signature, invalid signature, timestamp replay outside 5-minute tolerance, duplicate event, amount/currency mismatch, and non-paid/async payment states in test mode.
+- [ ] Test checkout -> Stripe test payment -> signed webhook -> paid order -> `/api/orders/download-link?session_id=...` -> R2 file download end-to-end. Verify an unpaid order cannot mint a grant or download.
+- [ ] Configure a Stripe live endpoint and live secrets only after the test-mode checklist passes. No live charges or live payment objects were created by this change.
 - [ ] Add monitoring/alerts, rate limits, idempotent retries, and a verified emergency stop before enabling scheduled or external side effects.
 
 ## Safety defaults
